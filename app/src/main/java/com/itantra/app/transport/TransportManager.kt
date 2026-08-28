@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -29,17 +30,26 @@ class TransportManager(context: Context) {
     private val encoder = MessageEncoder()
     private val decoder = MessageDecoder()
 
+    // Tracks if an active connect() operation is in flight to drive CONNECTING state
+    private val isConnecting = MutableStateFlow(false)
+
     /**
      * Unified state: Reports CONNECTED only when both WiFi Direct and Socket are ready.
-     * Reports CONNECTING if WiFi is ready but socket is still handshaking.
+     * Reports CONNECTING only while an active connect() call is in progress.
      */
     val connectionState: StateFlow<ConnectionState> = combine(
         wifiDirectManager.connectionState,
-        socketManager.isConnected
-    ) { p2pState, socketConnected ->
+        socketManager.isConnected,
+        isConnecting
+    ) { p2pState, socketConnected, connecting ->
         when {
+            // Full stack is up
             p2pState == ConnectionState.CONNECTED && socketConnected -> ConnectionState.CONNECTED
-            p2pState == ConnectionState.CONNECTED && !socketConnected -> ConnectionState.CONNECTING
+            // Actively trying to bridge the gap between layers
+            connecting -> ConnectionState.CONNECTING
+            // WiFi is up but socket is gone (and we aren't trying to connect) -> DISCONNECTED
+            p2pState == ConnectionState.CONNECTED && !socketConnected -> ConnectionState.DISCONNECTED
+            // Default to underlying WiFi state (handles DISCOVERING, ERROR, etc.)
             else -> p2pState
         }
     }.stateIn(scope, SharingStarted.Eagerly, ConnectionState.DISCONNECTED)
@@ -57,12 +67,25 @@ class TransportManager(context: Context) {
         }
 
     init {
-        // Auto-teardown: If WiFi Direct drops, close the socket.
+        // Bi-directional teardown: If WiFi drops, close the socket.
         scope.launch {
             wifiDirectManager.connectionState.collect { state ->
                 if (state != ConnectionState.CONNECTED && socketManager.isConnected.value) {
                     Log.d(TAG, "WiFi Direct connection lost, closing socket")
                     socketManager.close()
+                }
+            }
+        }
+
+        // Bi-directional teardown: If Socket drops unexpectedly, tear down WiFi too.
+        scope.launch {
+            combine(socketManager.isConnected, isConnecting) { connected, connecting ->
+                connected to connecting
+            }.collect { (connected, connecting) ->
+                // If socket drops while we are NOT actively trying to connect, reset everything
+                if (!connected && !connecting && wifiDirectManager.connectionState.value == ConnectionState.CONNECTED) {
+                    Log.d(TAG, "Socket connection lost unexpectedly, resetting WiFi stack")
+                    wifiDirectManager.disconnect()
                 }
             }
         }
@@ -81,20 +104,21 @@ class TransportManager(context: Context) {
      * Returns Result.success once the socket is fully established.
      */
     suspend fun connect(device: WifiDirectDevice): Result<Unit> {
+        isConnecting.value = true
         Log.d(TAG, "Initiating connection to ${device.name}")
         
-        // 1. Establish Wi-Fi Direct connection
-        wifiDirectManager.connect(device)
-        
-        if (wifiDirectManager.connectionState.value != ConnectionState.CONNECTED) {
-            return Result.failure(Exception("Wi-Fi Direct connection failed or timed out"))
-        }
-
-        // 2. Start Socket connection based on P2P role
-        val info = wifiDirectManager.connectionInfo.value
-            ?: return Result.failure(Exception("Failed to get connection info after WiFi Direct connected"))
-
         try {
+            // 1. Establish Wi-Fi Direct connection
+            wifiDirectManager.connect(device)
+            
+            if (wifiDirectManager.connectionState.value != ConnectionState.CONNECTED) {
+                return Result.failure(Exception("Wi-Fi Direct connection failed or timed out"))
+            }
+
+            // 2. Start Socket connection based on P2P role
+            val info = wifiDirectManager.connectionInfo.value
+                ?: return Result.failure(Exception("Failed to get connection info after WiFi Direct connected"))
+
             if (info.isGroupOwner) {
                 socketManager.startServer()
             } else {
@@ -125,6 +149,8 @@ class TransportManager(context: Context) {
             Log.e(TAG, "Error during socket initialization: ${e.message}")
             disconnect()
             return Result.failure(e)
+        } finally {
+            isConnecting.value = false
         }
     }
 
