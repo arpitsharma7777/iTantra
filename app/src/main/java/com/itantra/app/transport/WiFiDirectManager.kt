@@ -46,6 +46,9 @@ class WiFiDirectManager(context: Context) {
     private val manager: WifiP2pManager? = appContext.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
     private val channel: WifiP2pManager.Channel? = manager?.initialize(appContext, Looper.getMainLooper(), null)
     
+    // Case 1: Check if Wi-Fi Direct is supported on this device at init time
+    val isSupported: Boolean = manager != null && channel != null
+
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val stateMutex = Mutex()
     
@@ -89,14 +92,18 @@ class WiFiDirectManager(context: Context) {
     }
 
     init {
-        val filter = IntentFilter().apply {
-            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
+        if (!isSupported) {
+            updateState(ConnectionState.ERROR, "Wi-Fi Direct not supported on this device")
+        } else {
+            val filter = IntentFilter().apply {
+                addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
+            }
+            appContext.registerReceiver(receiver, filter)
+            cleanupStaleGroups()
         }
-        appContext.registerReceiver(receiver, filter)
-        cleanupStaleGroups()
     }
 
     private fun updateState(newState: ConnectionState, reason: String) {
@@ -116,6 +123,7 @@ class WiFiDirectManager(context: Context) {
     }
 
     private fun requestPeers() {
+        if (!isSupported) return
         try {
             manager?.requestPeers(channel) { peerList ->
                 val devices = peerList.deviceList.map { device ->
@@ -137,6 +145,7 @@ class WiFiDirectManager(context: Context) {
             if (reqId != activeInfoRequestId) return@requestConnectionInfo
             
             if (info.groupFormed) {
+                // Case 4: Validate groupOwnerAddress is non-null before emitting CONNECTED
                 val p2pInfo = WifiDirectConnectionInfo(
                     isGroupOwner = info.isGroupOwner,
                     groupOwnerAddress = info.groupOwnerAddress?.hostAddress
@@ -146,6 +155,7 @@ class WiFiDirectManager(context: Context) {
                     _connectionInfo.value = p2pInfo
                     updateState(ConnectionState.CONNECTED, "Connection info received and populated")
                 } else {
+                    // Case 4: Connection info unavailable / null group owner address after connect
                     updateState(ConnectionState.ERROR, "Connection info incomplete (missing IP)")
                 }
             } else {
@@ -155,6 +165,11 @@ class WiFiDirectManager(context: Context) {
     }
 
     fun startDiscovery() {
+        if (!isSupported) {
+            // Case 1: Guard against unsupported hardware
+            updateState(ConnectionState.ERROR, "Cannot start discovery: Wi-Fi Direct unsupported")
+            return
+        }
         updateState(ConnectionState.DISCOVERING, "Manual discovery start")
         try {
             manager?.discoverPeers(channel, object : WifiP2pManager.ActionListener {
@@ -163,6 +178,7 @@ class WiFiDirectManager(context: Context) {
                 }
 
                 override fun onFailure(reason: Int) {
+                    // Case 2: Discovery failure (WifiP2pManager reason codes)
                     updateState(ConnectionState.ERROR, "Discovery failed: $reason")
                 }
             })
@@ -172,6 +188,11 @@ class WiFiDirectManager(context: Context) {
     }
 
     suspend fun connect(device: WifiDirectDevice) {
+        if (!isSupported) {
+            // Case 1: Guard against unsupported hardware
+            updateState(ConnectionState.ERROR, "Cannot connect: Wi-Fi Direct unsupported")
+            return
+        }
         val opId = ++activeConnectOpId
         updateState(ConnectionState.CONNECTING, "Connecting to ${device.name}")
 
@@ -186,6 +207,7 @@ class WiFiDirectManager(context: Context) {
                 }
 
                 override fun onFailure(reason: Int) {
+                    // Case 3: Connection failure (explicit failure callback)
                     if (opId == activeConnectOpId) {
                         updateState(ConnectionState.ERROR, "Connect failed: $reason")
                     }
@@ -234,13 +256,12 @@ class WiFiDirectManager(context: Context) {
         }
     }
 
-    fun cleanup() {
-        try {
-            appContext.unregisterReceiver(receiver)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to unregister receiver: ${e.message}")
-        }
-        
+    /**
+     * Partial reset: Stops current operations but keeps the receiver registered.
+     * Case 9: Allows connect() to be called again successfully.
+     */
+    fun disconnect() {
+        Log.d(TAG, "WiFiDirectManager: performing partial disconnect")
         manager?.stopPeerDiscovery(channel, null)
         manager?.removeGroup(channel, null)
         
@@ -249,8 +270,19 @@ class WiFiDirectManager(context: Context) {
         _discoveredDevices.value = emptyList()
         activeConnectOpId++
         activeInfoRequestId++
-        
-        Log.d(TAG, "WiFiDirectManager cleaned up")
+    }
+
+    /**
+     * Full reset: Final release of resources, unregisters receiver.
+     */
+    fun teardown() {
+        disconnect()
+        try {
+            appContext.unregisterReceiver(receiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister receiver: ${e.message}")
+        }
+        Log.d(TAG, "WiFiDirectManager: full teardown complete")
     }
 
     companion object {

@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.ServerSocket
@@ -44,6 +45,7 @@ class SocketManager {
         scope.launch {
             try {
                 Log.d(TAG, "Starting server on port $PORT")
+                // Case 5: Catch server socket bind failure (e.g. port already in use)
                 serverSocket = ServerSocket(PORT).apply {
                     reuseAddress = true
                 }
@@ -51,6 +53,7 @@ class SocketManager {
                 handleSocketConnection(socket)
             } catch (e: Exception) {
                 handleError("Server error: ${e.message}")
+                close()
             }
         }
     }
@@ -59,10 +62,12 @@ class SocketManager {
         scope.launch {
             try {
                 Log.d(TAG, "Connecting to $host:$PORT")
+                // Case 6: Catch client socket connect failure (group owner not reachable)
                 val socket = Socket(host, PORT)
                 handleSocketConnection(socket)
             } catch (e: Exception) {
                 handleError("Client connection error: ${e.message}")
+                close()
             }
         }
     }
@@ -98,6 +103,7 @@ class SocketManager {
                 _incomingMessages.emit(payload)
             }
         } catch (e: Exception) {
+            // Case 7: Catch socket read failure mid-stream
             handleError("Read loop error: ${e.message}")
         } finally {
             close()
@@ -111,13 +117,19 @@ class SocketManager {
     private fun readExactly(input: InputStream, n: Int): ByteArray? {
         val buffer = ByteArray(n)
         var totalRead = 0
-        while (totalRead < n) {
-            val bytesRead = input.read(buffer, totalRead, n - totalRead)
-            if (bytesRead == -1) {
-                Log.d(TAG, "EOF reached after reading $totalRead/$n bytes")
-                return null
+        try {
+            while (totalRead < n) {
+                val bytesRead = input.read(buffer, totalRead, n - totalRead)
+                if (bytesRead == -1) {
+                    Log.d(TAG, "EOF reached after reading $totalRead/$n bytes")
+                    return null
+                }
+                totalRead += bytesRead
             }
-            totalRead += bytesRead
+        } catch (e: IOException) {
+            // Case 7: Treat mid-stream IOException as EOF/disconnect
+            Log.e(TAG, "IOException during readExactly: ${e.message}")
+            return null
         }
         return buffer
     }
@@ -151,6 +163,7 @@ class SocketManager {
                     out.flush()
                     Log.d(TAG, "Sent message of size ${data.size}")
                 } catch (e: Exception) {
+                    // Case 8: Catch socket write failure (remote gone)
                     handleError("Send error: ${e.message}")
                     close()
                 }
