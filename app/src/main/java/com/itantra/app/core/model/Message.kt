@@ -2,8 +2,12 @@ package com.itantra.app.core.model
 
 data class Message(
     val id: String,
-    val sender: String,
-    val language: Language,
     val text: String,
+    val sender: Sender,
     val timestamp: Long
 )
+
+enum class Sender {
+    LOCAL,
+    REMOTE
+}
