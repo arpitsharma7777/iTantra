@@ -1,6 +1,7 @@
 package com.itantra.app.ui.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,7 +31,8 @@ import com.itantra.app.ui.state.AppUiState
 fun SettingsScreen(
     uiState: AppUiState,
     onUpdateLanguage: (Language) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToDeveloper: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -86,6 +88,11 @@ fun SettingsScreen(
                 text = "Version: 1.0.0",
                 style = MaterialTheme.typography.bodyMedium
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onNavigateToDeveloper) {
+                Text("Developer Dashboard")
+            }
         }
     }
 }

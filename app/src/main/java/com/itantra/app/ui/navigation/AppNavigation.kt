@@ -9,9 +9,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.itantra.app.core.model.ConnectionState
-import com.itantra.app.ui.home.HomeScreen
-import com.itantra.app.ui.connection.ConnectionScreen
 import com.itantra.app.ui.communication.CommunicationScreen
+import com.itantra.app.ui.connection.ConnectionScreen
+import com.itantra.app.ui.developer.DeveloperScreen
+import com.itantra.app.ui.home.HomeScreen
 import com.itantra.app.ui.settings.SettingsScreen
 import com.itantra.app.ui.state.AppViewModel
 
@@ -63,8 +64,12 @@ fun AppNavigation(
             SettingsScreen(
                 uiState = uiState,
                 onUpdateLanguage = { viewModel.updateSelectedLanguage(it) },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateToDeveloper = { navController.navigate(Screen.Developer.route) }
             )
+        }
+        composable(Screen.Developer.route) {
+            DeveloperScreen()
         }
     }
 }
