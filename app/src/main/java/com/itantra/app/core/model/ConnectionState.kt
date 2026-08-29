@@ -1,9 +1,7 @@
 package com.itantra.app.core.model
 
-enum class ConnectionState {
-    DISCONNECTED,
-    DISCOVERING,
-    CONNECTING,
-    CONNECTED,
-    ERROR
+sealed class ConnectionState {
+    object Disconnected : ConnectionState()
+    object Discovering : ConnectionState()
+    data class Connected(val deviceName: String) : ConnectionState()
 }
