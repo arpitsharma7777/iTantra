@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,7 @@ fun CommunicationScreen(
     onClearError: () -> Unit = {},
     onBack: () -> Unit
 ) {
+    val currentUiState = rememberUpdatedState(uiState)
     var isSpeaking by remember { mutableStateOf(false) }
     
     // The button should be responsive if connected and STT is ready or already listening
@@ -145,8 +147,8 @@ fun CommunicationScreen(
                             if (!isConnected) return@pointerInput
                             detectTapGestures(
                                 onPress = {
-                                    if (uiState.sttState != SttState.READY) {
-                                        Log.w("CommunicationScreen", "Cannot start recording: STT is ${uiState.sttState}")
+                                    if (currentUiState.value.sttState != SttState.READY) {
+                                        Log.w("CommunicationScreen", "Cannot start recording: STT is ${currentUiState.value.sttState}")
                                         return@detectTapGestures
                                     }
                                     
