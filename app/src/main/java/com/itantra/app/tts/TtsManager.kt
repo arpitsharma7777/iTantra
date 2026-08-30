@@ -20,6 +20,7 @@ enum class TtsState {
 class TtsManager(private val context: Context) {
 
     private var tts: TextToSpeech? = null
+    private var initialized = false
 
     private val _state = MutableStateFlow(TtsState.INITIALIZING)
     val state: StateFlow<TtsState> = _state.asStateFlow()
@@ -29,8 +30,10 @@ class TtsManager(private val context: Context) {
 
     fun initialize() {
         _state.value = TtsState.INITIALIZING
+        _lastError.value = null
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
+                initialized = true
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
                         _state.value = TtsState.SPEAKING
@@ -55,6 +58,7 @@ class TtsManager(private val context: Context) {
                 })
                 _state.value = TtsState.READY
             } else {
+                initialized = false
                 _lastError.value = "TTS engine initialization failed (status: $status)"
                 _state.value = TtsState.ERROR
             }
@@ -63,11 +67,16 @@ class TtsManager(private val context: Context) {
 
     fun speak(text: String, language: Language) {
         val engine = tts
-        if (engine == null || _state.value == TtsState.ERROR || _state.value == TtsState.SHUTDOWN) {
+        if (engine == null || _state.value == TtsState.SHUTDOWN) {
             _lastError.value = "Cannot speak: TTS not ready"
             _state.value = TtsState.ERROR
             return
         }
+        if (!initialized) {
+            _lastError.value = "Cannot speak: TTS is still initializing"
+            return
+        }
+        if (text.isBlank()) return
 
         val locale = when (language) {
             Language.HINDI -> Locale("hi", "IN")
@@ -77,7 +86,7 @@ class TtsManager(private val context: Context) {
         val result = engine.setLanguage(locale)
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
             _lastError.value = "Language not available: $language"
-            _state.value = TtsState.ERROR
+            _state.value = TtsState.READY
             return
         }
 
@@ -86,7 +95,7 @@ class TtsManager(private val context: Context) {
 
         if (speakResult == TextToSpeech.ERROR) {
             _lastError.value = "speak() call failed"
-            _state.value = TtsState.ERROR
+            _state.value = TtsState.READY
         }
         // state transitions to SPEAKING/READY are handled by the UtteranceProgressListener
     }
@@ -102,6 +111,7 @@ class TtsManager(private val context: Context) {
         tts?.stop()
         tts?.shutdown()
         tts = null
+        initialized = false
         _state.value = TtsState.SHUTDOWN
     }
 }

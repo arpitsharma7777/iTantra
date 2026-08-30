@@ -38,7 +38,7 @@ class AppViewModelTest {
             val state = awaitItem()
             // Note: The AppViewModel currently initializes with two mock messages in its constructor
             // So we check only the requested fields
-            assertEquals(ConnectionState.Disconnected, state.connectionState)
+            assertEquals(ConnectionState.DISCONNECTED, state.connectionState)
             assertEquals(Language.ENGLISH, state.selectedLanguage)
             assertNull(state.connectedDeviceName)
             cancelAndIgnoreRemainingEvents()
@@ -51,7 +51,7 @@ class AppViewModelTest {
             // Skip initial state
             awaitItem()
 
-            val newState = ConnectionState.Discovering
+            val newState = ConnectionState.DISCOVERING
             viewModel.updateConnectionState(newState)
             
             val state = awaitItem()
@@ -97,19 +97,19 @@ class AppViewModelTest {
             awaitItem()
 
             // Update 1: Connection State
-            viewModel.updateConnectionState(ConnectionState.Discovering)
-            assertEquals(ConnectionState.Discovering, awaitItem().connectionState)
+            viewModel.updateConnectionState(ConnectionState.DISCOVERING)
+            assertEquals(ConnectionState.DISCOVERING, awaitItem().connectionState)
 
             // Update 2: Language (Connection state should remain Discovering)
             viewModel.updateSelectedLanguage(Language.HINDI)
             val stateAfterLanguage = awaitItem()
             assertEquals(Language.HINDI, stateAfterLanguage.selectedLanguage)
-            assertEquals(ConnectionState.Discovering, stateAfterLanguage.connectionState)
+            assertEquals(ConnectionState.DISCOVERING, stateAfterLanguage.connectionState)
 
             // Update 3: Connected Device (Language and Connection State should remain)
             val deviceName = "iTantra Glasses"
             viewModel.updateConnectedDevice(deviceName)
-            viewModel.updateConnectionState(ConnectionState.Connected(deviceName))
+            viewModel.updateConnectionState(ConnectionState.CONNECTED)
             
             // Collect both updates
             awaitItem() // Device name update
@@ -117,7 +117,7 @@ class AppViewModelTest {
             
             assertEquals(deviceName, finalState.connectedDeviceName)
             assertEquals(Language.HINDI, finalState.selectedLanguage)
-            assertEquals(ConnectionState.Connected(deviceName), finalState.connectionState)
+            assertEquals(ConnectionState.CONNECTED, finalState.connectionState)
             
             cancelAndIgnoreRemainingEvents()
         }

@@ -36,7 +36,7 @@ class HomeScreenTest {
     fun connectionStatusShowsDisconnectedWhenDisconnected() {
         composeTestRule.setContent {
             HomeScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Disconnected),
+                uiState = AppUiState(connectionState = ConnectionState.DISCONNECTED),
                 onConnectDevice = {},
                 onStartCommunication = {},
                 onSettings = {}
@@ -51,7 +51,7 @@ class HomeScreenTest {
     fun connectionStatusShowsConnectedWhenConnected() {
         composeTestRule.setContent {
             HomeScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Connected("Test Device")),
+                uiState = AppUiState(connectionState = ConnectionState.CONNECTED),
                 onConnectDevice = {},
                 onStartCommunication = {},
                 onSettings = {}
@@ -83,7 +83,7 @@ class HomeScreenTest {
         var callCount = 0
         composeTestRule.setContent {
             HomeScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Disconnected),
+                uiState = AppUiState(connectionState = ConnectionState.DISCONNECTED),
                 onConnectDevice = {},
                 onStartCommunication = { callCount++ },
                 onSettings = {}
@@ -102,7 +102,7 @@ class HomeScreenTest {
         var callCount = 0
         composeTestRule.setContent {
             HomeScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Connected("Test Device")),
+                uiState = AppUiState(connectionState = ConnectionState.CONNECTED),
                 onConnectDevice = {},
                 onStartCommunication = { callCount++ },
                 onSettings = {}
