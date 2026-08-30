@@ -1,7 +1,6 @@
 package com.itantra.app.ui.communication
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,13 +35,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import android.util.Log
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Language
@@ -62,8 +58,7 @@ fun CommunicationScreen(
     onClearError: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    val currentUiState = rememberUpdatedState(uiState)
-    var isSpeaking by remember { mutableStateOf(false) }
+    var isSpeaking by remember { mutableStateOf(uiState.sttState == SttState.LISTENING) }
     
     // The button should be responsive if connected and STT is ready or already listening
     val isConnected = uiState.connectionState == ConnectionState.CONNECTED
@@ -137,40 +132,21 @@ fun CommunicationScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                // Use a Box for the pointer input so it's independent of the button's internal state
-                // This ensures we never lose the 'release' event.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.7f)
                         .height(64.dp)
-                        .pointerInput(isConnected) {
-                            if (!isConnected) return@pointerInput
-                            detectTapGestures(
-                                onPress = {
-                                    if (currentUiState.value.sttState != SttState.READY) {
-                                        Log.w("CommunicationScreen", "Cannot start recording: STT is ${currentUiState.value.sttState}")
-                                        return@detectTapGestures
-                                    }
-                                    
-                                    try {
-                                        Log.d("CommunicationScreen", "Hold-to-speak: Press detected")
-                                        isSpeaking = true
-                                        onMicPressed()
-                                        awaitRelease()
-                                        Log.d("CommunicationScreen", "Hold-to-speak: Release detected")
-                                    } catch (e: Exception) {
-                                        Log.d("CommunicationScreen", "Hold-to-speak: Interaction interrupted: ${e.message}")
-                                    } finally {
-                                        isSpeaking = false
-                                        onMicReleased()
-                                        Log.d("CommunicationScreen", "Hold-to-speak: Cleanup complete")
-                                    }
-                                }
-                            )
-                        }
                 ) {
                     Button(
-                        onClick = {}, // Interaction handled by pointerInput above
+                        onClick = {
+                            if (isSpeaking) {
+                                isSpeaking = false
+                                onMicReleased()
+                            } else {
+                                isSpeaking = true
+                                onMicPressed()
+                            }
+                        },
                         enabled = buttonEnabled,
                         modifier = Modifier.fillMaxSize(),
                         colors = ButtonDefaults.buttonColors(
@@ -183,8 +159,8 @@ fun CommunicationScreen(
                             when {
                                 !isConnected -> "Connect First"
                                 uiState.sttState == SttState.LOADING -> "Loading Speech"
-                                isSpeaking -> "Release to Send"
-                                else -> "Hold to Speak"
+                                isSpeaking -> "Press to Stop"
+                                else -> "Press to Speak"
                             }
                         )
                     }

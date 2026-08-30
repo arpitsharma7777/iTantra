@@ -5,7 +5,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTouchInput
 import com.itantra.app.core.model.Language
 import com.itantra.app.core.model.Message
 import com.itantra.app.core.model.Sender
@@ -107,7 +106,7 @@ class CommunicationScreenTest {
     }
 
     @Test
-    fun micButton_triggersPressAndReleaseCallbacks() {
+    fun micButton_togglesPressAndReleaseCallbacks() {
         var pressed = false
         var released = false
         
@@ -121,19 +120,12 @@ class CommunicationScreenTest {
             )
         }
 
-        val micButton = composeTestRule.onNodeWithText("Hold to Speak")
-        
-        // Simulate Press
-        micButton.performTouchInput {
-            down(center)
-        }
+        val micButton = composeTestRule.onNodeWithText("Press to Speak")
+        micButton.performClick()
         assert(pressed)
         assert(!released)
-        
-        // Simulate Release
-        micButton.performTouchInput {
-            up()
-        }
+
+        composeTestRule.onNodeWithText("Press to Stop").performClick()
         assert(released)
     }
 }

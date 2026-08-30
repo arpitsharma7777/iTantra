@@ -33,12 +33,12 @@ class TtsManager(private val context: Context) {
         Log.d(TAG, "Initializing TTS engine")
         _state.value = TtsState.INITIALIZING
         _lastError.value = null
-        
+
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 Log.d(TAG, "TTS engine initialized successfully")
                 initialized = true
-                
+
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
                         Log.d(TAG, "TTS playback started: $utteranceId")
@@ -47,16 +47,12 @@ class TtsManager(private val context: Context) {
 
                     override fun onDone(utteranceId: String?) {
                         Log.d(TAG, "TTS playback completed: $utteranceId")
-                        if (_state.value != TtsState.SHUTDOWN) {
-                            _state.value = TtsState.READY
-                        }
+                        resetStateAfterPlayback()
                     }
 
                     override fun onStop(utteranceId: String?, interrupted: Boolean) {
                         Log.d(TAG, "TTS playback stopped: $utteranceId | interrupted=$interrupted")
-                        if (_state.value != TtsState.SHUTDOWN) {
-                            _state.value = TtsState.READY
-                        }
+                        resetStateAfterPlayback()
                     }
 
                     @Deprecated("Deprecated in Java")
@@ -64,16 +60,14 @@ class TtsManager(private val context: Context) {
                         Log.e(TAG, "TTS playback error: $utteranceId")
                         _lastError.value = "Speech playback failed"
                         _state.value = TtsState.ERROR
-                        // Reset to READY so we can try again
-                        _state.value = TtsState.READY
+                        resetStateAfterPlayback()
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
                         Log.e(TAG, "TTS playback error (code $errorCode): $utteranceId")
                         _lastError.value = "Speech playback failed (error $errorCode)"
                         _state.value = TtsState.ERROR
-                        // Reset to READY so we can try again
-                        _state.value = TtsState.READY
+                        resetStateAfterPlayback()
                     }
                 })
                 _state.value = TtsState.READY
@@ -83,6 +77,12 @@ class TtsManager(private val context: Context) {
                 _lastError.value = "TTS initialization failed"
                 _state.value = TtsState.ERROR
             }
+        }
+    }
+
+    private fun resetStateAfterPlayback() {
+        if (_state.value != TtsState.SHUTDOWN) {
+            _state.value = TtsState.READY
         }
     }
 

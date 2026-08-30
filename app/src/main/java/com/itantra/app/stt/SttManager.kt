@@ -189,17 +189,36 @@ class SttManager(private val context: Context) {
     }
 
     private fun cleanupSession(sessionId: Int, isError: Boolean = false) {
-        if (activeSessionId == sessionId) {
-            activeSessionId = -1
+        val isCurrentSession = sessionId == activeSessionId || activeSessionId == -1
+        if (!isCurrentSession) {
+            Log.d(TAG, "Ignoring stale cleanup for session $sessionId; active session is $activeSessionId")
+            return
+        }
+
+        activeSessionId = -1
+        try {
+            speechService?.stop()
+            speechService?.shutdown()
+        } catch (e: Exception) {
+            Log.e(TAG, "cleanupSession() failed for session $sessionId", e)
+        } finally {
+            speechService = null
             _state.value = if (isError) SttState.ERROR else SttState.READY
         }
     }
 
     fun stopListening() {
         Log.d(TAG, "stopListening() requested for session $activeSessionId")
-        // We do NOT change state to READY immediately here. 
-        // We wait for onFinalResult to ensure the SpeechService has fully released resources.
-        speechService?.stop()
+        val sessionId = activeSessionId
+        if (sessionId == -1) {
+            _state.value = SttState.READY
+            return
+        }
+        try {
+            speechService?.stop()
+        } finally {
+            cleanupSession(sessionId)
+        }
     }
 
     fun cancelListening() {
