@@ -2,6 +2,7 @@ package com.itantra.app.ui.connection
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,28 +12,26 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.itantra.app.core.model.ConnectionState
+import com.itantra.app.transport.WifiDirectDevice
 import com.itantra.app.ui.state.AppUiState
-import kotlinx.coroutines.delay
 
 @Composable
 fun ConnectionScreen(
     uiState: AppUiState,
     onDiscoverClicked: () -> Unit,
-    onConnectClicked: (String) -> Unit,
+    onConnectClicked: (WifiDirectDevice) -> Unit,
     onDisconnectClicked: () -> Unit,
     onNavigateToCommunication: () -> Unit,
+    onClearError: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Column(
@@ -42,20 +41,44 @@ fun ConnectionScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(text = "Connection Manager", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        when (val state = uiState.connectionState) {
-            is ConnectionState.Disconnected -> {
-                DisconnectedContent(onDiscoverClicked)
+        ErrorMessage(uiState.errorMessage, onClearError)
+
+        when (uiState.connectionState) {
+            ConnectionState.DISCONNECTED -> {
+                DisconnectedContent(
+                    hasDevices = uiState.discoveredDevices.isNotEmpty(),
+                    devices = uiState.discoveredDevices,
+                    onDiscoverClicked = onDiscoverClicked,
+                    onConnectClicked = onConnectClicked
+                )
             }
-            is ConnectionState.Discovering -> {
-                DiscoveringContent(onConnectClicked)
+
+            ConnectionState.DISCOVERING -> {
+                DiscoveringContent(
+                    devices = uiState.discoveredDevices,
+                    onDiscoverClicked = onDiscoverClicked,
+                    onConnectClicked = onConnectClicked
+                )
             }
-            is ConnectionState.Connected -> {
+
+            ConnectionState.CONNECTING -> {
+                ConnectingContent(onDisconnectClicked)
+            }
+
+            ConnectionState.CONNECTED -> {
                 ConnectedContent(
-                    deviceName = state.deviceName,
+                    deviceName = uiState.connectedDeviceName ?: "Connected device",
                     onDisconnectClicked = onDisconnectClicked,
                     onNavigateToCommunication = onNavigateToCommunication
+                )
+            }
+
+            ConnectionState.ERROR -> {
+                ErrorContent(
+                    onDiscoverClicked = onDiscoverClicked,
+                    onDisconnectClicked = onDisconnectClicked
                 )
             }
         }
@@ -68,52 +91,138 @@ fun ConnectionScreen(
 }
 
 @Composable
-private fun DisconnectedContent(onDiscoverClicked: () -> Unit) {
+private fun ErrorMessage(message: String?, onClearError: () -> Unit) {
+    if (message == null) return
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onClearError) {
+                Text("Dismiss")
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+}
+
+@Composable
+private fun DisconnectedContent(
+    hasDevices: Boolean,
+    devices: List<WifiDirectDevice>,
+    onDiscoverClicked: () -> Unit,
+    onConnectClicked: (WifiDirectDevice) -> Unit
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = "No Device Connected", style = MaterialTheme.typography.bodyLarge)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onDiscoverClicked) {
-            Text("Discover Devices")
+            Text(if (hasDevices) "Refresh Devices" else "Discover Devices")
+        }
+        if (hasDevices) {
+            Spacer(modifier = Modifier.height(16.dp))
+            DeviceList(devices, enabled = true, onConnectClicked = onConnectClicked)
         }
     }
 }
 
 @Composable
-private fun DiscoveringContent(onConnectClicked: (String) -> Unit) {
-    var devices by remember { mutableStateOf<List<String>>(emptyList()) }
-
-    LaunchedEffect(Unit) {
-        delay(2000) // Mock discovery delay
-        devices = listOf("Device A", "Device B", "Device C")
-    }
-
+private fun DiscoveringContent(
+    devices: List<WifiDirectDevice>,
+    onDiscoverClicked: () -> Unit,
+    onConnectClicked: (WifiDirectDevice) -> Unit
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = "Searching for nearby devices...", style = MaterialTheme.typography.bodyLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator()
+            Spacer(modifier = Modifier.padding(8.dp))
+            Text(text = "Searching for nearby devices...", style = MaterialTheme.typography.bodyLarge)
+        }
         Spacer(modifier = Modifier.height(16.dp))
-        
+        OutlinedButton(onClick = onDiscoverClicked) {
+            Text("Search Again")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
         if (devices.isEmpty()) {
-            Button(onClick = {}, enabled = false) {
-                Text("Searching...")
-            }
+            Text(
+                text = "No devices found yet. Keep both devices nearby with Wi-Fi and Location enabled.",
+                style = MaterialTheme.typography.bodyMedium
+            )
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(devices) { device ->
-                    DeviceItem(device, onConnectClicked)
-                }
-            }
+            DeviceList(devices, enabled = true, onConnectClicked = onConnectClicked)
         }
     }
 }
 
 @Composable
-private fun DeviceItem(name: String, onConnectClicked: (String) -> Unit) {
+private fun ConnectingContent(onDisconnectClicked: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator()
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Connecting...", style = MaterialTheme.typography.bodyLarge)
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedButton(onClick = onDisconnectClicked) {
+            Text("Cancel")
+        }
+    }
+}
+
+@Composable
+private fun ErrorContent(
+    onDiscoverClicked: () -> Unit,
+    onDisconnectClicked: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = "Connection failed",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onDiscoverClicked) {
+            Text("Try Again")
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(onClick = onDisconnectClicked) {
+            Text("Reset Connection")
+        }
+    }
+}
+
+@Composable
+private fun DeviceList(
+    devices: List<WifiDirectDevice>,
+    enabled: Boolean,
+    onConnectClicked: (WifiDirectDevice) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(devices, key = { it.address }) { device ->
+            DeviceItem(device, enabled, onConnectClicked)
+        }
+    }
+}
+
+@Composable
+private fun DeviceItem(
+    device: WifiDirectDevice,
+    enabled: Boolean,
+    onConnectClicked: (WifiDirectDevice) -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = name, style = MaterialTheme.typography.titleMedium)
-            Button(onClick = { onConnectClicked(name) }) {
+            Text(text = device.name, style = MaterialTheme.typography.titleMedium)
+            Text(text = device.address, style = MaterialTheme.typography.bodySmall)
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { onConnectClicked(device) },
+                enabled = enabled
+            ) {
                 Text("Connect")
             }
         }

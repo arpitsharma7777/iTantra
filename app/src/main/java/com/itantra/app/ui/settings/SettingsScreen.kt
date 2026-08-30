@@ -14,6 +14,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -32,7 +33,8 @@ fun SettingsScreen(
     uiState: AppUiState,
     onUpdateLanguage: (Language) -> Unit,
     onBack: () -> Unit,
-    onNavigateToDeveloper: () -> Unit = {}
+    onNavigateToDeveloper: () -> Unit = {},
+    onClearError: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -68,6 +70,18 @@ fun SettingsScreen(
                     ) {
                         Text(language.displayName)
                     }
+                }
+            }
+
+            uiState.errorMessage?.let { message ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+                OutlinedButton(onClick = onClearError) {
+                    Text("Dismiss")
                 }
             }
 

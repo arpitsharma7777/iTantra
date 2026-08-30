@@ -86,7 +86,7 @@ class AppNavigationTest {
     @Test
     fun appNavHost_backFromCommunication_returnsToHome() {
         // Connect first to enable communication
-        viewModel.updateConnectionState(ConnectionState.Connected("Test Device"))
+        viewModel.updateConnectionState(ConnectionState.CONNECTED)
         viewModel.updateConnectedDevice("Test Device")
         
         composeTestRule.onNodeWithText("Start Communication").performClick()

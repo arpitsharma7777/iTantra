@@ -21,9 +21,10 @@ fun HomeScreen(
     uiState: AppUiState,
     onConnectDevice: () -> Unit,
     onStartCommunication: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onClearError: () -> Unit = {}
 ) {
-    val isDisconnected = uiState.connectionState is ConnectionState.Disconnected
+    val isDisconnected = uiState.connectionState == ConnectionState.DISCONNECTED
 
     Column(
         modifier = Modifier
@@ -41,15 +42,28 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         val statusText = when (uiState.connectionState) {
-            is ConnectionState.Connected -> "Connected"
-            is ConnectionState.Disconnected -> "Disconnected"
-            is ConnectionState.Discovering -> "Discovering"
+            ConnectionState.CONNECTED -> "Connected"
+            ConnectionState.DISCONNECTED -> "Disconnected"
+            ConnectionState.DISCOVERING -> "Discovering"
+            else -> uiState.connectionState.name
         }
         Text(
             text = "Status: $statusText",
             style = MaterialTheme.typography.bodyLarge,
             color = if (isDisconnected) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
         )
+
+        uiState.errorMessage?.let { message ->
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            Button(onClick = onClearError) {
+                Text("Dismiss")
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 

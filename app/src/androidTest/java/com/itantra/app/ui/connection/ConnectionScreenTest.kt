@@ -21,7 +21,7 @@ class ConnectionScreenTest {
         var discoverClicked = false
         composeTestRule.setContent {
             ConnectionScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Disconnected),
+                uiState = AppUiState(connectionState = ConnectionState.DISCONNECTED),
                 onDiscoverClicked = { discoverClicked = true },
                 onConnectClicked = {},
                 onDisconnectClicked = {},
@@ -40,7 +40,7 @@ class ConnectionScreenTest {
         var connectedDevice = ""
         composeTestRule.setContent {
             ConnectionScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Discovering),
+                uiState = AppUiState(connectionState = ConnectionState.DISCOVERING),
                 onDiscoverClicked = {},
                 onConnectClicked = { connectedDevice = it },
                 onDisconnectClicked = {},
@@ -73,7 +73,10 @@ class ConnectionScreenTest {
 
         composeTestRule.setContent {
             ConnectionScreen(
-                uiState = AppUiState(connectionState = ConnectionState.Connected(deviceName)),
+                uiState = AppUiState(
+                    connectionState = ConnectionState.CONNECTED,
+                    connectedDeviceName = deviceName
+                ),
                 onDiscoverClicked = {},
                 onConnectClicked = {},
                 onDisconnectClicked = { disconnectClicked = true },

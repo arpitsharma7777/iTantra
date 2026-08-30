@@ -72,8 +72,8 @@ class CommunicationScreenTest {
     @Test
     fun messageList_rendersMessages() {
         val messages = listOf(
-            Message("1", "Hello from remote", Sender.REMOTE, 100L),
-            Message("2", "Hi from local", Sender.LOCAL, 200L)
+            Message(id = "1", text = "Hello from remote", sender = Sender.REMOTE, timestamp = 100L, language = Language.ENGLISH),
+            Message(id = "2", text = "Hi from local", sender = Sender.LOCAL, timestamp = 200L, language = Language.ENGLISH)
         )
         
         composeTestRule.setContent {

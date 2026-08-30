@@ -3,12 +3,10 @@ package com.itantra.app.stt
 import android.content.Context
 import android.util.Log
 import com.itantra.app.core.model.Language
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
@@ -36,10 +34,9 @@ class SttManager(private val context: Context) {
     private var model: Model? = null
     private var speechService: SpeechService? = null
 
-    private val scope = CoroutineScope(Dispatchers.Main)
-
     private var activeSessionId: Int = -1
     private var sessionCounter: Int = 0
+    private var activeLoadId: Int = 0
     private var currentLanguage: Language? = null
 
     private val _state = MutableStateFlow(SttState.IDLE)
@@ -57,7 +54,9 @@ class SttManager(private val context: Context) {
     }
 
     fun initialize(language: Language) {
+        val loadId = ++activeLoadId
         _state.value = SttState.LOADING
+        _lastError.value = null
         currentLanguage = language
 
         StorageService.unpack(
@@ -65,10 +64,15 @@ class SttManager(private val context: Context) {
             modelPathFor(language),
             "model",
             { unpackedModel ->
+                if (loadId != activeLoadId) {
+                    unpackedModel.close()
+                    return@unpack
+                }
                 model = unpackedModel
                 _state.value = SttState.READY
             },
             { exception ->
+                if (loadId != activeLoadId) return@unpack
                 _lastError.value = "Model load failed: ${exception.message}"
                 _state.value = SttState.ERROR
             }
@@ -76,38 +80,45 @@ class SttManager(private val context: Context) {
     }
 
     fun switchLanguage(language: Language) {
-        // Cancel any active session first so stale results can't leak into the new language
         cancelListening()
-
-        speechService?.stop()
+        speechService?.shutdown()
         speechService = null
+        model?.close()
         model = null
-
         initialize(language)
     }
 
-    fun startListening() {
+    fun startListening(): Int {
         val loadedModel = model
-        if (loadedModel == null || _state.value != SttState.READY) {
+        if (loadedModel == null) {
             _lastError.value = "Cannot start listening: model not ready"
             _state.value = SttState.ERROR
-            return
+            return -1
+        }
+        if (_state.value == SttState.ERROR) {
+            _state.value = SttState.READY
         }
         if (_state.value == SttState.LISTENING) {
-            // Already listening — do not start a second parallel session
-            return
+            return activeSessionId
+        }
+        if (_state.value != SttState.READY) {
+            _lastError.value = "Cannot start listening: model is ${_state.value}"
+            return -1
         }
 
+        val language = currentLanguage ?: run {
+            _lastError.value = "Cannot start listening: no language selected"
+            return -1
+        }
         val sessionId = ++sessionCounter
         activeSessionId = sessionId
-        val language = currentLanguage ?: return
 
         try {
             val recognizer = Recognizer(loadedModel, 16000.0f)
             speechService = SpeechService(recognizer, 16000.0f)
             speechService?.startListening(object : RecognitionListener {
                 override fun onPartialResult(hypothesis: String?) {
-                    Log.d("SttManager", "Partial: $hypothesis")
+                    Log.d(TAG, "Partial: $hypothesis")
                     if (sessionId != activeSessionId) return
                     val text = extractText(hypothesis)
                     if (text.isNotEmpty()) {
@@ -116,46 +127,57 @@ class SttManager(private val context: Context) {
                 }
 
                 override fun onResult(hypothesis: String?) {
-                    Log.d("SttManager", "Result: $hypothesis")
+                    Log.d(TAG, "Result: $hypothesis")
                     if (sessionId != activeSessionId) return
                     val text = extractText(hypothesis)
                     if (text.isNotEmpty()) {
+                        // Treat Vosk's onResult (sentence detected) as a final text event
+                        // so CommunicationManager can send it immediately.
                         _result.value = SttResult(sessionId, language, finalText = text)
                     }
-                    // Keep LISTENING state to allow consecutive sentences
                 }
 
                 override fun onFinalResult(hypothesis: String?) {
-                    Log.d("SttManager", "Final Result: $hypothesis")
+                    Log.d(TAG, "Final Result: $hypothesis")
                     if (sessionId != activeSessionId) return
                     val text = extractText(hypothesis)
                     if (text.isNotEmpty()) {
                         _result.value = SttResult(sessionId, language, finalText = text)
                     }
+                    activeSessionId = -1
                     _state.value = SttState.READY
                 }
 
                 override fun onError(exception: Exception?) {
-                    Log.e("SttManager", "Error: ${exception?.message}", exception)
+                    Log.e(TAG, "Error: ${exception?.message}", exception)
                     if (sessionId != activeSessionId) return
                     _lastError.value = "Recognition error: ${exception?.message}"
+                    activeSessionId = -1
                     _state.value = SttState.ERROR
                 }
 
                 override fun onTimeout() {
                     if (sessionId != activeSessionId) return
+                    activeSessionId = -1
                     _state.value = SttState.READY
                 }
             })
             _state.value = SttState.LISTENING
+            return sessionId
         } catch (e: IOException) {
             _lastError.value = "Failed to start recognizer: ${e.message}"
+            activeSessionId = -1
             _state.value = SttState.ERROR
+            return -1
+        } catch (e: RuntimeException) {
+            _lastError.value = "Failed to start recognizer: ${e.message}"
+            activeSessionId = -1
+            _state.value = SttState.ERROR
+            return -1
         }
     }
 
     fun stopListening() {
-        // Normal stop — allows final result to be emitted
         speechService?.stop()
         if (_state.value == SttState.LISTENING) {
             _state.value = SttState.READY
@@ -163,7 +185,6 @@ class SttManager(private val context: Context) {
     }
 
     fun cancelListening() {
-        // Invalidate the session so any late results are discarded
         activeSessionId = -1
         speechService?.cancel()
         if (_state.value == SttState.LISTENING) {
@@ -175,16 +196,22 @@ class SttManager(private val context: Context) {
         speechService?.stop()
         speechService?.shutdown()
         speechService = null
+        model?.close()
         model = null
         activeSessionId = -1
+        activeLoadId++
         _state.value = SttState.IDLE
     }
 
     private fun extractText(hypothesisJson: String?): String {
-        // Vosk returns JSON like {"text" : "..."} or {"partial" : "..."}
-        // Extract just the text value cleanly rather than exposing raw JSON
         if (hypothesisJson == null) return ""
-        val regex = Regex("\"(?:text|partial)\"\\s*:\\s*\"([^\"]*)\"")
-        return regex.find(hypothesisJson)?.groupValues?.get(1) ?: ""
+        return runCatching {
+            val json = JSONObject(hypothesisJson)
+            json.optString("text").ifBlank { json.optString("partial") }
+        }.getOrDefault("")
+    }
+
+    companion object {
+        private const val TAG = "SttManager"
     }
 }
