@@ -12,7 +12,6 @@ import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 import org.vosk.android.StorageService
-import java.io.IOException
 
 enum class SttState {
     IDLE,
@@ -55,6 +54,7 @@ class SttManager(private val context: Context) {
 
     fun initialize(language: Language) {
         val loadId = ++activeLoadId
+        Log.d(TAG, "Initializing STT for $language (loadId: $loadId)")
         _state.value = SttState.LOADING
         _lastError.value = null
         currentLanguage = language
@@ -65,14 +65,17 @@ class SttManager(private val context: Context) {
             "model",
             { unpackedModel ->
                 if (loadId != activeLoadId) {
+                    Log.w(TAG, "Stale model load finished for $language, discarding")
                     unpackedModel.close()
                     return@unpack
                 }
+                Log.d(TAG, "Model unpacked successfully for $language")
                 model = unpackedModel
                 _state.value = SttState.READY
             },
             { exception ->
                 if (loadId != activeLoadId) return@unpack
+                Log.e(TAG, "Model load failed for $language", exception)
                 _lastError.value = "Model load failed: ${exception.message}"
                 _state.value = SttState.ERROR
             }
@@ -80,119 +83,134 @@ class SttManager(private val context: Context) {
     }
 
     fun switchLanguage(language: Language) {
+        Log.d(TAG, "switchLanguage() to $language requested")
         cancelListening()
+        
+        // Ensure clean slate
         speechService?.shutdown()
         speechService = null
         model?.close()
         model = null
+        
         initialize(language)
     }
 
     fun startListening(): Int {
         val loadedModel = model
         if (loadedModel == null) {
+            Log.e(TAG, "startListening() failed: model not ready")
             _lastError.value = "Cannot start listening: model not ready"
             _state.value = SttState.ERROR
             return -1
         }
-        if (_state.value == SttState.ERROR) {
-            _state.value = SttState.READY
-        }
+        
         if (_state.value == SttState.LISTENING) {
+            Log.w(TAG, "Already listening, returning active session ID $activeSessionId")
             return activeSessionId
-        }
-        if (_state.value != SttState.READY) {
-            _lastError.value = "Cannot start listening: model is ${_state.value}"
-            return -1
         }
 
         val language = currentLanguage ?: run {
+            Log.e(TAG, "startListening() failed: no language selected")
             _lastError.value = "Cannot start listening: no language selected"
             return -1
         }
+        
         val sessionId = ++sessionCounter
         activeSessionId = sessionId
+        Log.d(TAG, "Starting listening session $sessionId for $language")
 
         try {
+            // Recreating the recognizer each time is recommended by Vosk for fresh state
             val recognizer = Recognizer(loadedModel, 16000.0f)
             speechService = SpeechService(recognizer, 16000.0f)
-            speechService?.startListening(object : RecognitionListener {
+            
+            val listener = object : RecognitionListener {
                 override fun onPartialResult(hypothesis: String?) {
-                    Log.d(TAG, "Partial: $hypothesis")
                     if (sessionId != activeSessionId) return
                     val text = extractText(hypothesis)
                     if (text.isNotEmpty()) {
+                        Log.v(TAG, "Partial ($sessionId): \"$text\"")
                         _result.value = SttResult(sessionId, language, partialText = text)
                     }
                 }
 
                 override fun onResult(hypothesis: String?) {
-                    Log.d(TAG, "Result: $hypothesis")
                     if (sessionId != activeSessionId) return
                     val text = extractText(hypothesis)
                     if (text.isNotEmpty()) {
-                        // Treat Vosk's onResult (sentence detected) as a final text event
-                        // so CommunicationManager can send it immediately.
+                        Log.d(TAG, "Sentence complete ($sessionId): \"$text\"")
                         _result.value = SttResult(sessionId, language, finalText = text)
                     }
                 }
 
                 override fun onFinalResult(hypothesis: String?) {
-                    Log.d(TAG, "Final Result: $hypothesis")
-                    if (sessionId != activeSessionId) return
+                    if (sessionId != activeSessionId) {
+                        Log.d(TAG, "Final result arrived for inactive session $sessionId, ignoring")
+                        return
+                    }
                     val text = extractText(hypothesis)
                     if (text.isNotEmpty()) {
+                        Log.d(TAG, "Final session result ($sessionId): \"$text\"")
                         _result.value = SttResult(sessionId, language, finalText = text)
                     }
-                    activeSessionId = -1
-                    _state.value = SttState.READY
+                    Log.d(TAG, "STT session $sessionId fully completed")
+                    cleanupSession(sessionId)
                 }
 
                 override fun onError(exception: Exception?) {
-                    Log.e(TAG, "Error: ${exception?.message}", exception)
                     if (sessionId != activeSessionId) return
+                    Log.e(TAG, "STT session $sessionId error", exception)
                     _lastError.value = "Recognition error: ${exception?.message}"
-                    activeSessionId = -1
-                    _state.value = SttState.ERROR
+                    cleanupSession(sessionId, isError = true)
                 }
 
                 override fun onTimeout() {
                     if (sessionId != activeSessionId) return
-                    activeSessionId = -1
-                    _state.value = SttState.READY
+                    Log.d(TAG, "STT session $sessionId timed out")
+                    cleanupSession(sessionId)
                 }
-            })
-            _state.value = SttState.LISTENING
-            return sessionId
-        } catch (e: IOException) {
+            }
+
+            if (speechService?.startListening(listener) == true) {
+                _state.value = SttState.LISTENING
+                return sessionId
+            } else {
+                Log.e(TAG, "SpeechService.startListening() returned false")
+                _lastError.value = "Failed to start microphone"
+                cleanupSession(sessionId, isError = true)
+                return -1
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception in startListening() for session $sessionId", e)
             _lastError.value = "Failed to start recognizer: ${e.message}"
-            activeSessionId = -1
-            _state.value = SttState.ERROR
+            cleanupSession(sessionId, isError = true)
             return -1
-        } catch (e: RuntimeException) {
-            _lastError.value = "Failed to start recognizer: ${e.message}"
+        }
+    }
+
+    private fun cleanupSession(sessionId: Int, isError: Boolean = false) {
+        if (activeSessionId == sessionId) {
             activeSessionId = -1
-            _state.value = SttState.ERROR
-            return -1
+            _state.value = if (isError) SttState.ERROR else SttState.READY
         }
     }
 
     fun stopListening() {
+        Log.d(TAG, "stopListening() requested for session $activeSessionId")
+        // We do NOT change state to READY immediately here. 
+        // We wait for onFinalResult to ensure the SpeechService has fully released resources.
         speechService?.stop()
-        if (_state.value == SttState.LISTENING) {
-            _state.value = SttState.READY
-        }
     }
 
     fun cancelListening() {
+        Log.d(TAG, "cancelListening() requested for session $activeSessionId")
         activeSessionId = -1
         speechService?.cancel()
-        if (_state.value == SttState.LISTENING) {
-            _state.value = SttState.READY
-        }
+        _state.value = SttState.READY
     }
 
     fun shutdown() {
+        Log.d(TAG, "shutdown() requested")
         speechService?.stop()
         speechService?.shutdown()
         speechService = null
@@ -207,7 +225,10 @@ class SttManager(private val context: Context) {
         if (hypothesisJson == null) return ""
         return runCatching {
             val json = JSONObject(hypothesisJson)
-            json.optString("text").ifBlank { json.optString("partial") }
+            // Vosk results can have "text" or "partial" fields
+            val text = json.optString("text")
+            if (text.isNotBlank()) return text
+            json.optString("partial")
         }.getOrDefault("")
     }
 

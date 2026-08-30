@@ -1,6 +1,7 @@
 package com.itantra.app.ui.state
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -120,6 +121,7 @@ class AppViewModel(
     }
 
     fun startDiscovery() {
+        Log.d(TAG, "startDiscovery() called")
         val transport = transportManager
         if (transport == null) {
             showError("Transport is not available")
@@ -130,6 +132,7 @@ class AppViewModel(
     }
 
     fun connectToDevice(device: WifiDirectDevice) {
+        Log.d(TAG, "connectToDevice() called for ${device.name}")
         val transport = transportManager
         if (transport == null) {
             showError("Transport is not available")
@@ -143,24 +146,29 @@ class AppViewModel(
     }
 
     fun disconnect() {
+        Log.d(TAG, "disconnect() called")
         transportManager?.disconnect()
     }
 
     fun updateSelectedLanguage(language: Language) {
+        Log.d(TAG, "updateSelectedLanguage() called for $language")
         communicationManager?.setLanguage(language)
             ?: _uiState.update { it.copy(selectedLanguage = language) }
     }
 
     fun startSpeaking() {
+        Log.d(TAG, "startSpeaking() called")
         clearError()
         communicationManager?.startSpeaking() ?: showError("Speech is not available")
     }
 
     fun stopSpeaking() {
+        Log.d(TAG, "stopSpeaking() called")
         communicationManager?.stopSpeaking()
     }
 
     fun showError(message: String) {
+        Log.e(TAG, "showError(): $message")
         _uiState.update { it.copy(errorMessage = message) }
         // Automatically clear error after a delay
         viewModelScope.launch {
@@ -203,6 +211,7 @@ class AppViewModel(
     }
 
     companion object {
+        private const val TAG = "AppViewModel"
         private const val PREFS_NAME = "itantra_prefs"
     }
 }
