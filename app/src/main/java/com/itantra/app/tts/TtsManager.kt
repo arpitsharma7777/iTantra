@@ -3,6 +3,7 @@ package com.itantra.app.tts
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import com.itantra.app.core.model.Language
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,90 +30,132 @@ class TtsManager(private val context: Context) {
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     fun initialize() {
+        Log.d(TAG, "Initializing TTS engine")
         _state.value = TtsState.INITIALIZING
         _lastError.value = null
+
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
+                Log.d(TAG, "TTS engine initialized successfully")
                 initialized = true
+
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
+                        Log.d(TAG, "TTS playback started: $utteranceId")
                         _state.value = TtsState.SPEAKING
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        if (_state.value != TtsState.SHUTDOWN) {
-                            _state.value = TtsState.READY
-                        }
+                        Log.d(TAG, "TTS playback completed: $utteranceId")
+                        resetStateAfterPlayback()
+                    }
+
+                    override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                        Log.d(TAG, "TTS playback stopped: $utteranceId | interrupted=$interrupted")
+                        resetStateAfterPlayback()
                     }
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
-                        _lastError.value = "Speech failed for utterance: $utteranceId"
+                        Log.e(TAG, "TTS playback error: $utteranceId")
+                        _lastError.value = "Speech playback failed"
                         _state.value = TtsState.ERROR
+                        resetStateAfterPlayback()
                     }
 
                     override fun onError(utteranceId: String?, errorCode: Int) {
-                        _lastError.value = "Speech failed (code $errorCode) for: $utteranceId"
+                        Log.e(TAG, "TTS playback error (code $errorCode): $utteranceId")
+                        _lastError.value = "Speech playback failed (error $errorCode)"
                         _state.value = TtsState.ERROR
+                        resetStateAfterPlayback()
                     }
                 })
                 _state.value = TtsState.READY
             } else {
+                Log.e(TAG, "TTS engine initialization failed: $status")
                 initialized = false
-                _lastError.value = "TTS engine initialization failed (status: $status)"
+                _lastError.value = "TTS initialization failed"
                 _state.value = TtsState.ERROR
             }
+        }
+    }
+
+    private fun resetStateAfterPlayback() {
+        if (_state.value != TtsState.SHUTDOWN) {
+            _state.value = TtsState.READY
         }
     }
 
     fun speak(text: String, language: Language) {
         val engine = tts
         if (engine == null || _state.value == TtsState.SHUTDOWN) {
-            _lastError.value = "Cannot speak: TTS not ready"
-            _state.value = TtsState.ERROR
+            Log.e(TAG, "speak() failed: TTS not initialized or shutdown")
             return
         }
+        
         if (!initialized) {
-            _lastError.value = "Cannot speak: TTS is still initializing"
+            Log.w(TAG, "speak() called but initialization is still in progress")
             return
         }
+        
         if (text.isBlank()) return
+
+        Log.d(TAG, "speak() in $language: \"$text\"")
 
         val locale = when (language) {
             Language.HINDI -> Locale("hi", "IN")
             Language.ENGLISH -> Locale.US
         }
 
-        val result = engine.setLanguage(locale)
-        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            _lastError.value = "Language not available: $language"
-            _state.value = TtsState.READY
-            return
-        }
+        try {
+            val langResult = engine.setLanguage(locale)
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e(TAG, "Language $language not supported or data missing")
+                _lastError.value = "Language $language not supported"
+                return
+            }
 
-        val utteranceId = "utterance_${System.currentTimeMillis()}"
-        val speakResult = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-
-        if (speakResult == TextToSpeech.ERROR) {
-            _lastError.value = "speak() call failed"
+            val utteranceId = "utt_${System.currentTimeMillis()}"
+            // Use QUEUE_FLUSH to immediately play the latest message
+            val result = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            
+            if (result == TextToSpeech.ERROR) {
+                Log.e(TAG, "engine.speak() returned ERROR")
+                _lastError.value = "Failed to start speech"
+                _state.value = TtsState.READY
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during speak()", e)
             _state.value = TtsState.READY
         }
-        // state transitions to SPEAKING/READY are handled by the UtteranceProgressListener
     }
 
     fun stop() {
-        tts?.stop()
-        if (_state.value != TtsState.SHUTDOWN && _state.value != TtsState.ERROR) {
-            _state.value = TtsState.READY
+        Log.d(TAG, "stop() requested")
+        try {
+            tts?.stop()
+        } finally {
+            if (_state.value != TtsState.SHUTDOWN) {
+                _state.value = TtsState.READY
+            }
         }
     }
 
     fun shutdown() {
-        tts?.stop()
-        tts?.shutdown()
-        tts = null
+        Log.d(TAG, "shutdown() requested")
         initialized = false
         _state.value = TtsState.SHUTDOWN
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during TTS shutdown", e)
+        } finally {
+            tts = null
+        }
+    }
+
+    companion object {
+        private const val TAG = "TtsManager"
     }
 }
-

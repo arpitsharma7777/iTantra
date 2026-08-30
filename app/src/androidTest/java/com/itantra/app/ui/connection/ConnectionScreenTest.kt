@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.itantra.app.core.model.ConnectionState
+import com.itantra.app.transport.WifiDirectDevice
 import com.itantra.app.ui.state.AppUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -37,12 +38,21 @@ class ConnectionScreenTest {
 
     @Test
     fun discoveringState_showsDevicesAfterDelay() {
-        var connectedDevice = ""
+        var connectedDeviceName: String? = null
+        val discoveredDevices = listOf(
+            WifiDirectDevice(name = "Device A", address = "AA:AA:AA:AA:AA:AA"),
+            WifiDirectDevice(name = "Device B", address = "BB:BB:BB:BB:BB:BB"),
+            WifiDirectDevice(name = "Device C", address = "CC:CC:CC:CC:CC:CC")
+        )
+
         composeTestRule.setContent {
             ConnectionScreen(
-                uiState = AppUiState(connectionState = ConnectionState.DISCOVERING),
+                uiState = AppUiState(
+                    connectionState = ConnectionState.DISCOVERING,
+                    discoveredDevices = discoveredDevices
+                ),
                 onDiscoverClicked = {},
-                onConnectClicked = { connectedDevice = it },
+                onConnectClicked = { connectedDeviceName = it.name },
                 onDisconnectClicked = {},
                 onNavigateToCommunication = {},
                 onBack = {}
@@ -50,19 +60,12 @@ class ConnectionScreenTest {
         }
 
         composeTestRule.onNodeWithText("Searching for nearby devices...").assertIsDisplayed()
-        
-        // Wait for mock discovery (2s delay in code)
-        composeTestRule.waitUntil(timeoutMillis = 5000) {
-            composeTestRule.onAllNodes(hasText("Device A")).fetchSemanticsNodes().isNotEmpty()
-        }
-
         composeTestRule.onNodeWithText("Device A").assertIsDisplayed()
         composeTestRule.onNodeWithText("Device B").assertIsDisplayed()
         composeTestRule.onNodeWithText("Device C").assertIsDisplayed()
 
-        // Test connection click
         composeTestRule.onAllNodes(hasText("Connect"))[0].performClick()
-        assertEquals("Device A", connectedDevice)
+        assertEquals("Device A", connectedDeviceName)
     }
 
     @Test

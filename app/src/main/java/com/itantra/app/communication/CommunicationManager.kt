@@ -1,5 +1,6 @@
 package com.itantra.app.communication
 
+import android.util.Log
 import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Language
 import com.itantra.app.core.model.Message
@@ -54,7 +55,7 @@ class CommunicationManager(
     private var expectedSessionId: Int = -1
     private var expectedSessionLanguage: Language? = null
     private var lastSentTextInSession: String? = null
-    private var pendingIncomingMessage: Message? = null
+    private val pendingTtsQueue = mutableListOf<Message>()
 
     /**
      * Current state of the Speech-to-Text engine.
@@ -85,19 +86,21 @@ class CommunicationManager(
         scope.launch {
             try {
                 transportManager.incomingMessages.collect { message ->
+                    Log.d(TAG, "Incoming message received: \"${message.text}\" (${message.language})")
                     // 1. Add to UI state immediately
                     _messages.update { it + message }
 
                     // 2 & 3. Handle TTS gating based on STT state
                     if (sttState.value == SttState.LISTENING) {
-                        // Store as pending to avoid speaking over the user
-                        pendingIncomingMessage = message
+                        Log.d(TAG, "STT is listening, queueing message for later TTS")
+                        pendingTtsQueue.add(message)
                     } else {
-                        // Speak immediately
+                        Log.d(TAG, "Speaking incoming message via TTS")
                         ttsManager.speak(message.text, message.language)
                     }
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Incoming message collector failed", e)
                 _error.emit("Message receiver failed: ${e.message}")
             }
         }
@@ -108,10 +111,16 @@ class CommunicationManager(
             sttState.collect { state ->
                 val isListening = state == SttState.LISTENING
                 if (wasListening && !isListening) {
+                    Log.d(TAG, "STT finished listening, processing ${pendingTtsQueue.size} queued messages")
                     // Transitioned away from LISTENING (READY, ERROR, or IDLE)
-                    pendingIncomingMessage?.let {
-                        ttsManager.speak(it.text, it.language)
-                        pendingIncomingMessage = null
+                    if (pendingTtsQueue.isNotEmpty()) {
+                        // For simplicity, we just speak the last one or all in sequence?
+                        // If we call speak() with QUEUE_FLUSH repeatedly, only the last one works.
+                        // We should ideally speak the latest one or use a real queue in TtsManager.
+                        // For now, let's speak the most recent one to avoid overwhelming the user.
+                        val latest = pendingTtsQueue.last()
+                        ttsManager.speak(latest.text, latest.language)
+                        pendingTtsQueue.clear()
                     }
                 }
                 wasListening = isListening
@@ -124,7 +133,10 @@ class CommunicationManager(
         if (text.isBlank()) return
 
         // Verify the sessionId matches the current expected ID
-        if (result.sessionId != expectedSessionId) return
+        if (result.sessionId != expectedSessionId) {
+            Log.w(TAG, "Discarding STT result: sessionId mismatch (${result.sessionId} vs $expectedSessionId)")
+            return
+        }
 
         // Avoid duplicate sends if onResult and onFinalResult report the same text
         if (text == lastSentTextInSession) return
@@ -133,8 +145,11 @@ class CommunicationManager(
         // Use the Language that was active when THIS specific sessionId was started
         val lang = expectedSessionLanguage ?: return
 
+        Log.d(TAG, "Handling final STT result: \"$text\" in $lang")
+
         // Final connection check before attempting to send
         if (connectionState.value != ConnectionState.CONNECTED) {
+            Log.e(TAG, "Failed to send: Device disconnected mid-session")
             _error.emit("Failed to send: Device disconnected mid-session")
             return
         }
@@ -146,9 +161,12 @@ class CommunicationManager(
         )
 
         try {
+            Log.d(TAG, "Sending message to transport...")
             transportManager.send(message)
             _messages.update { it + message }
+            Log.d(TAG, "Outgoing message sent and added to history")
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to send message", e)
             _error.emit("Failed to send message: ${e.message}")
         }
     }
@@ -159,9 +177,12 @@ class CommunicationManager(
      * containing Hindi text, or attached to the wrong language entirely.
      */
     fun setLanguage(language: Language) {
+        val oldLang = _selectedLanguage.value
+        Log.d(TAG, "Switching language: $oldLang -> $language")
         _selectedLanguage.value = language
 
         if (sttState.value == SttState.LISTENING) {
+            Log.d(TAG, "STT was listening, invalidating current session ID $expectedSessionId")
             // Invalidate the session so any late results from the old language are discarded
             expectedSessionId = -1
         }
@@ -174,12 +195,15 @@ class CommunicationManager(
      */
     fun startSpeaking() {
         scope.launch {
+            Log.d(TAG, "startSpeaking() requested")
             if (connectionState.value != ConnectionState.CONNECTED) {
+                Log.w(TAG, "Cannot start speaking: not connected")
                 _error.emit("Cannot start speaking: Device not connected")
                 return@launch
             }
 
             if (sttState.value != SttState.READY) {
+                Log.w(TAG, "Cannot start speaking: STT is in state ${sttState.value}")
                 val status = when (sttState.value) {
                     SttState.LOADING -> "Initializing speech engine..."
                     SttState.ERROR -> "Speech engine error. Try changing language."
@@ -192,7 +216,9 @@ class CommunicationManager(
 
             // Interrupt TTS if it's currently speaking
             if (ttsState.value == TtsState.SPEAKING) {
+                Log.d(TAG, "Interrupting active TTS before starting STT")
                 ttsManager.stop()
+                // Wait briefly for state to update
                 ttsState.first { it != TtsState.SPEAKING }
             }
 
@@ -200,13 +226,16 @@ class CommunicationManager(
             val lang = selectedLanguage.value
 
             // Start listening and get the sessionId generated by SttManager
+            Log.d(TAG, "Calling sttManager.startListening()...")
             val sessionId = sttManager.startListening()
             
             if (sessionId != -1) {
+                Log.d(TAG, "STT session started with ID: $sessionId")
                 expectedSessionId = sessionId
                 expectedSessionLanguage = lang
                 lastSentTextInSession = null
             } else {
+                Log.e(TAG, "sttManager.startListening() returned -1")
                 _error.emit("Failed to start listening")
             }
         }
@@ -216,13 +245,19 @@ class CommunicationManager(
      * Stops the voice recognition process and cancels any active session.
      */
     fun stopSpeaking() {
+        Log.d(TAG, "stopSpeaking() requested")
         sttManager.stopListening()
     }
 
     fun cleanup() {
+        Log.d(TAG, "Cleaning up CommunicationManager")
         scope.cancel()
         transportManager.cleanup()
         sttManager.shutdown()
         ttsManager.shutdown()
+    }
+
+    companion object {
+        private const val TAG = "CommunicationManager"
     }
 }

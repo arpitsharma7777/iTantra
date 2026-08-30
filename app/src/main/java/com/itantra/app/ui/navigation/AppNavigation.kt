@@ -67,7 +67,9 @@ fun AppNavigation(
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (!granted) {
+        if (granted) {
+            actualViewModel.startSpeaking()
+        } else {
             actualViewModel.showError("Microphone permission was denied.")
         }
     }

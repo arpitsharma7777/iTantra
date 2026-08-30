@@ -39,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Language
@@ -59,9 +58,13 @@ fun CommunicationScreen(
     onClearError: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    var isSpeaking by remember { mutableStateOf(false) }
-    val canSpeak = uiState.connectionState == ConnectionState.CONNECTED &&
-        uiState.sttState == SttState.READY
+    var isSpeaking by remember { mutableStateOf(uiState.sttState == SttState.LISTENING) }
+    
+    // The button should be responsive if connected and STT is ready or already listening
+    val isConnected = uiState.connectionState == ConnectionState.CONNECTED
+    val isSttReady = uiState.sttState == SttState.READY
+    val isSttListening = uiState.sttState == SttState.LISTENING
+    val buttonEnabled = isConnected && (isSttReady || isSttListening)
 
     Scaffold(
         topBar = {
@@ -92,7 +95,7 @@ fun CommunicationScreen(
             LanguageSelector(
                 selectedLanguage = uiState.selectedLanguage,
                 onLanguageSelected = onLanguageSelected,
-                enabled = uiState.sttState != SttState.LISTENING
+                enabled = !isSttListening && uiState.sttState != SttState.LOADING
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -129,47 +132,38 @@ fun CommunicationScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Button(
-                    onClick = {},
-                    enabled = canSpeak,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth(0.7f)
                         .height(64.dp)
-                        .then(
-                            if (canSpeak) {
-                                Modifier.pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            val pressed = event.changes.any { it.pressed }
-                                            if (pressed && !isSpeaking) {
-                                                isSpeaking = true
-                                                onMicPressed()
-                                            } else if (!pressed && isSpeaking) {
-                                                isSpeaking = false
-                                                onMicReleased()
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSpeaking) Color.Red else MaterialTheme.colorScheme.primary
-                    )
                 ) {
-                    Icon(Icons.Default.Mic, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        when {
-                            uiState.connectionState != ConnectionState.CONNECTED -> "Connect First"
-                            uiState.sttState == SttState.LOADING -> "Loading Speech"
-                            isSpeaking -> "Release to Send"
-                            else -> "Hold to Speak"
-                        }
-                    )
+                    Button(
+                        onClick = {
+                            if (isSpeaking) {
+                                isSpeaking = false
+                                onMicReleased()
+                            } else {
+                                isSpeaking = true
+                                onMicPressed()
+                            }
+                        },
+                        enabled = buttonEnabled,
+                        modifier = Modifier.fillMaxSize(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSpeaking) Color.Red else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            when {
+                                !isConnected -> "Connect First"
+                                uiState.sttState == SttState.LOADING -> "Loading Speech"
+                                isSpeaking -> "Press to Stop"
+                                else -> "Press to Speak"
+                            }
+                        )
+                    }
                 }
             }
         }
