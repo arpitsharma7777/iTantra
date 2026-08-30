@@ -1,6 +1,7 @@
 package com.itantra.app.ui.communication
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -60,8 +62,12 @@ fun CommunicationScreen(
     onBack: () -> Unit
 ) {
     var isSpeaking by remember { mutableStateOf(false) }
-    val canSpeak = uiState.connectionState == ConnectionState.CONNECTED &&
-        uiState.sttState == SttState.READY
+    
+    // The button should be responsive if connected and STT is ready or already listening
+    val isConnected = uiState.connectionState == ConnectionState.CONNECTED
+    val isSttReady = uiState.sttState == SttState.READY
+    val isSttListening = uiState.sttState == SttState.LISTENING
+    val buttonEnabled = isConnected && (isSttReady || isSttListening)
 
     Scaffold(
         topBar = {
@@ -92,7 +98,7 @@ fun CommunicationScreen(
             LanguageSelector(
                 selectedLanguage = uiState.selectedLanguage,
                 onLanguageSelected = onLanguageSelected,
-                enabled = uiState.sttState != SttState.LISTENING
+                enabled = !isSttListening && uiState.sttState != SttState.LOADING
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -129,47 +135,57 @@ fun CommunicationScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Button(
-                    onClick = {},
-                    enabled = canSpeak,
+                // Use a Box for the pointer input so it's independent of the button's internal state
+                // This ensures we never lose the 'release' event.
+                Box(
                     modifier = Modifier
                         .fillMaxWidth(0.7f)
                         .height(64.dp)
-                        .then(
-                            if (canSpeak) {
-                                Modifier.pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            val pressed = event.changes.any { it.pressed }
-                                            if (pressed && !isSpeaking) {
-                                                isSpeaking = true
-                                                onMicPressed()
-                                            } else if (!pressed && isSpeaking) {
-                                                isSpeaking = false
-                                                onMicReleased()
-                                            }
-                                        }
+                        .pointerInput(isConnected) {
+                            if (!isConnected) return@pointerInput
+                            detectTapGestures(
+                                onPress = {
+                                    if (uiState.sttState != SttState.READY) {
+                                        Log.w("CommunicationScreen", "Cannot start recording: STT is ${uiState.sttState}")
+                                        return@detectTapGestures
+                                    }
+                                    
+                                    try {
+                                        Log.d("CommunicationScreen", "Hold-to-speak: Press detected")
+                                        isSpeaking = true
+                                        onMicPressed()
+                                        awaitRelease()
+                                        Log.d("CommunicationScreen", "Hold-to-speak: Release detected")
+                                    } catch (e: Exception) {
+                                        Log.d("CommunicationScreen", "Hold-to-speak: Interaction interrupted: ${e.message}")
+                                    } finally {
+                                        isSpeaking = false
+                                        onMicReleased()
+                                        Log.d("CommunicationScreen", "Hold-to-speak: Cleanup complete")
                                     }
                                 }
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSpeaking) Color.Red else MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Icon(Icons.Default.Mic, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        when {
-                            uiState.connectionState != ConnectionState.CONNECTED -> "Connect First"
-                            uiState.sttState == SttState.LOADING -> "Loading Speech"
-                            isSpeaking -> "Release to Send"
-                            else -> "Hold to Speak"
+                            )
                         }
-                    )
+                ) {
+                    Button(
+                        onClick = {}, // Interaction handled by pointerInput above
+                        enabled = buttonEnabled,
+                        modifier = Modifier.fillMaxSize(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSpeaking) Color.Red else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            when {
+                                !isConnected -> "Connect First"
+                                uiState.sttState == SttState.LOADING -> "Loading Speech"
+                                isSpeaking -> "Release to Send"
+                                else -> "Hold to Speak"
+                            }
+                        )
+                    }
                 }
             }
         }
