@@ -9,7 +9,7 @@ lifecycleRuntimeKtx = "2.8.4"
 lifecycleViewmodelCompose = "2.8.4"
 activityCompose = "1.9.1"
 composeBom = "2024.06.00"
-vosk = "0.3.75"
+onnxruntime = "1.18.0"
 navigationCompose = "2.7.7"
 kotlinxCoroutinesTest = "1.8.1"
 turbine = "1.1.0"
@@ -30,7 +30,7 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-navigation-testing = { group = "androidx.navigation", name = "navigation-testing", version.ref = "navigationCompose" }

@@ -1,0 +1,19 @@
+{
+  "model_name": "Sravaani-Multilingual-STT",
+  "version": "1.0",
+  "sample_rate": 16000,
+  "channels": 1,
+  "encoding": "pcm_16bit",
+  "supported_languages": {
+    "hi": "Hindi",
+    "gu": "Gujarati",
+    "mr": "Marathi",
+    "kn": "Kannada",
+    "ml": "Malayalam",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "or": "Odia",
+    "bn": "Bengali",
+    "en": "English"
+  }
+}
