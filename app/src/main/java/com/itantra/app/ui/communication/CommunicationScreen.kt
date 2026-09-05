@@ -1,6 +1,8 @@
 package com.itantra.app.ui.communication
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -220,15 +222,21 @@ fun LanguageSelector(
     enabled: Boolean = true
 ) {
     val options = Language.entries
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        options.forEachIndexed { index, language ->
-            SegmentedButton(
-                selected = language == selectedLanguage,
-                onClick = { onLanguageSelected(language) },
-                enabled = enabled,
-                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
-            ) {
-                Text(language.displayName)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+    ) {
+        SingleChoiceSegmentedButtonRow {
+            options.forEachIndexed { index, language ->
+                SegmentedButton(
+                    selected = language == selectedLanguage,
+                    onClick = { onLanguageSelected(language) },
+                    enabled = enabled,
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                ) {
+                    Text(language.displayName)
+                }
             }
         }
     }

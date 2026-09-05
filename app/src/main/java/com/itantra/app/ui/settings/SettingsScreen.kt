@@ -1,6 +1,9 @@
 package com.itantra.app.ui.settings
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,14 +64,20 @@ fun SettingsScreen(
             )
             
             val languages = Language.entries
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                languages.forEachIndexed { index, language ->
-                    SegmentedButton(
-                        selected = language == uiState.selectedLanguage,
-                        onClick = { onUpdateLanguage(language) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = languages.size)
-                    ) {
-                        Text(language.displayName)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                SingleChoiceSegmentedButtonRow {
+                    languages.forEachIndexed { index, language ->
+                        SegmentedButton(
+                            selected = language == uiState.selectedLanguage,
+                            onClick = { onUpdateLanguage(language) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = languages.size)
+                        ) {
+                            Text(language.displayName)
+                        }
                     }
                 }
             }

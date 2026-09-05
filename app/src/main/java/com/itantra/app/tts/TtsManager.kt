@@ -104,6 +104,14 @@ class TtsManager(private val context: Context) {
 
         val locale = when (language) {
             Language.HINDI -> Locale("hi", "IN")
+            Language.GUJARATI -> Locale("gu", "IN")
+            Language.MARATHI -> Locale("mr", "IN")
+            Language.KANNADA -> Locale("kn", "IN")
+            Language.MALAYALAM -> Locale("ml", "IN")
+            Language.TAMIL -> Locale("ta", "IN")
+            Language.TELUGU -> Locale("te", "IN")
+            Language.ODIA -> Locale("or", "IN")
+            Language.BENGALI -> Locale("bn", "IN")
             Language.ENGLISH -> Locale.US
         }
 
