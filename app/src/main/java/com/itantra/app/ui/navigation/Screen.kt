@@ -5,5 +5,4 @@ sealed class Screen(val route: String) {
     object Connection : Screen("connection")
     object Communication : Screen("communication")
     object Settings : Screen("settings")
-    object Developer : Screen("developer")
 }
