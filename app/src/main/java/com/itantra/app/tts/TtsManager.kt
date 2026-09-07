@@ -1,14 +1,20 @@
 package com.itantra.app.tts
 
 import android.content.Context
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioTrack
 import android.util.Log
 import com.itantra.app.core.model.Language
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.Locale
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 enum class TtsState {
     INITIALIZING,
@@ -20,8 +26,32 @@ enum class TtsState {
 
 class TtsManager(private val context: Context) {
 
-    private var tts: TextToSpeech? = null
-    private var initialized = false
+    private var activePiperEngine: PiperEngine? = null
+    private var activePiperLanguage: Language? = null
+    private val piperMutex = Mutex()
+
+    private val vitsRasaEngine: TtsEngine by lazy { VitsRasaEngine(context) }
+    private val hindiMmsEngine: TtsEngine by lazy {
+        MmsEngine(
+            context, "tts/mms-hin/mms_tts_hin.onnx", "tts/mms-hin/vocab_hin.json",
+            "mms_hin.onnx", "vocab_hin.json", maxValidTokenId = 71L
+        )
+    }
+    private val gujaratiEngine: TtsEngine by lazy {
+        MmsEngine(
+            context, "tts/mms-guj/mms_tts_guj.onnx", "tts/mms-guj/vocab_guj.json",
+            "mms_guj.onnx", "vocab_guj.json", maxValidTokenId = 58L
+        )
+    }
+    private val odiaEngine: TtsEngine by lazy {
+        MmsEngine(
+            context, "tts/mms-ory/mms_tts_ory.onnx", "tts/mms-ory/vocab_ory.json",
+            "mms_ory.onnx", "vocab_ory.json", maxValidTokenId = 75L
+        )
+    }
+
+    private val nonPiperMutexes = ConcurrentHashMap<TtsEngine, Mutex>()
+    private val initializedNonPiperEngines = ConcurrentHashMap<TtsEngine, Boolean>()
 
     private val _state = MutableStateFlow(TtsState.INITIALIZING)
     val state: StateFlow<TtsState> = _state.asStateFlow()
@@ -30,140 +60,153 @@ class TtsManager(private val context: Context) {
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     fun initialize() {
-        Log.d(TAG, "Initializing TTS engine")
-        _state.value = TtsState.INITIALIZING
-        _lastError.value = null
+        _state.value = TtsState.READY
+    }
 
-        tts = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                Log.d(TAG, "TTS engine initialized successfully")
-                initialized = true
+    private suspend fun getPiperEngine(language: Language): PiperEngine {
+        return piperMutex.withLock {
+            if (activePiperLanguage != language) {
+                Log.d("TtsManager", "Swapping Piper engine to language: $language")
+                _state.value = TtsState.INITIALIZING
+                activePiperEngine?.release()
+                val (assetDir, destDir, speakerId) = when (language) {
+                    Language.ENGLISH -> Triple("tts/piper-en", "piper_en", 630)
+                    else -> throw IllegalArgumentException("Not a Piper language: $language")
+                }
+                val engine = PiperEngine(context, assetDir, destDir, speakerId)
+                engine.initialize()
+                activePiperEngine = engine
+                activePiperLanguage = language
+            }
+            activePiperEngine!!
+        }
+    }
 
-                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        Log.d(TAG, "TTS playback started: $utteranceId")
-                        _state.value = TtsState.SPEAKING
-                    }
-
-                    override fun onDone(utteranceId: String?) {
-                        Log.d(TAG, "TTS playback completed: $utteranceId")
-                        resetStateAfterPlayback()
-                    }
-
-                    override fun onStop(utteranceId: String?, interrupted: Boolean) {
-                        Log.d(TAG, "TTS playback stopped: $utteranceId | interrupted=$interrupted")
-                        resetStateAfterPlayback()
-                    }
-
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {
-                        Log.e(TAG, "TTS playback error: $utteranceId")
-                        _lastError.value = "Speech playback failed"
-                        _state.value = TtsState.ERROR
-                        resetStateAfterPlayback()
-                    }
-
-                    override fun onError(utteranceId: String?, errorCode: Int) {
-                        Log.e(TAG, "TTS playback error (code $errorCode): $utteranceId")
-                        _lastError.value = "Speech playback failed (error $errorCode)"
-                        _state.value = TtsState.ERROR
-                        resetStateAfterPlayback()
-                    }
-                })
-                _state.value = TtsState.READY
-            } else {
-                Log.e(TAG, "TTS engine initialization failed: $status")
-                initialized = false
-                _lastError.value = "TTS initialization failed"
-                _state.value = TtsState.ERROR
+    private suspend fun ensureNonPiperEngineInitialized(engine: TtsEngine, language: Language) {
+        if (initializedNonPiperEngines[engine] == true) return
+        val mutex = nonPiperMutexes.getOrPut(engine) { Mutex() }
+        mutex.withLock {
+            if (initializedNonPiperEngines[engine] != true) {
+                Log.d("TtsManager", "Initializing non-Piper engine for language: $language")
+                _state.value = TtsState.INITIALIZING
+                engine.initialize()
+                initializedNonPiperEngines[engine] = true
             }
         }
     }
 
-    private fun resetStateAfterPlayback() {
-        if (_state.value != TtsState.SHUTDOWN) {
-            _state.value = TtsState.READY
-        }
-    }
-
-    fun speak(text: String, language: Language) {
-        val engine = tts
-        if (engine == null || _state.value == TtsState.SHUTDOWN) {
-            Log.e(TAG, "speak() failed: TTS not initialized or shutdown")
-            return
-        }
-        
-        if (!initialized) {
-            Log.w(TAG, "speak() called but initialization is still in progress")
-            return
-        }
-        
-        if (text.isBlank()) return
-
-        Log.d(TAG, "speak() in $language: \"$text\"")
-
-        val locale = when (language) {
-            Language.HINDI -> Locale("hi", "IN")
-            Language.GUJARATI -> Locale("gu", "IN")
-            Language.MARATHI -> Locale("mr", "IN")
-            Language.KANNADA -> Locale("kn", "IN")
-            Language.MALAYALAM -> Locale("ml", "IN")
-            Language.TAMIL -> Locale("ta", "IN")
-            Language.TELUGU -> Locale("te", "IN")
-            Language.ODIA -> Locale("or", "IN")
-            Language.BENGALI -> Locale("bn", "IN")
-            Language.ENGLISH -> Locale.US
+    suspend fun speak(text: String, language: Language) = withContext(Dispatchers.IO) {
+        if (_state.value == TtsState.ERROR || _state.value == TtsState.SHUTDOWN) {
+            _lastError.value = "Cannot speak: TTS not ready"
+            _state.value = TtsState.ERROR
+            return@withContext
         }
 
         try {
-            val langResult = engine.setLanguage(locale)
-            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e(TAG, "Language $language not supported or data missing")
-                _lastError.value = "Language $language not supported"
-                return
+            val (samples, sampleRate) = when (language) {
+                Language.ENGLISH -> {
+                    val engine = getPiperEngine(language)
+                    _state.value = TtsState.SPEAKING
+                    Pair(engine.synthesize(text, "en"), 22050)
+                }
+                Language.HINDI -> {
+                    ensureNonPiperEngineInitialized(hindiMmsEngine, language)
+                    _state.value = TtsState.SPEAKING
+                    Pair(hindiMmsEngine.synthesize(text, "hi"), 16000)
+                }
+                Language.MALAYALAM, Language.BENGALI, Language.KANNADA, Language.MARATHI, Language.TAMIL, Language.TELUGU -> {
+                    ensureNonPiperEngineInitialized(vitsRasaEngine, language)
+                    _state.value = TtsState.SPEAKING
+                    val langCode = when (language) {
+                        Language.MALAYALAM -> "ml"
+                        Language.BENGALI -> "bn"
+                        Language.KANNADA -> "kn"
+                        Language.MARATHI -> "mr"
+                        Language.TAMIL -> "ta"
+                        Language.TELUGU -> "te"
+                        else -> "bn"
+                    }
+                    Pair(vitsRasaEngine.synthesize(text, langCode), 24000)
+                }
+                Language.GUJARATI -> {
+                    ensureNonPiperEngineInitialized(gujaratiEngine, language)
+                    _state.value = TtsState.SPEAKING
+                    Pair(gujaratiEngine.synthesize(text, "gu"), 16000)
+                }
+                Language.ODIA -> {
+                    ensureNonPiperEngineInitialized(odiaEngine, language)
+                    _state.value = TtsState.SPEAKING
+                    Pair(odiaEngine.synthesize(text, "or"), 16000)
+                }
             }
 
-            val utteranceId = "utt_${System.currentTimeMillis()}"
-            // Use QUEUE_FLUSH to immediately play the latest message
-            val result = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-            
-            if (result == TextToSpeech.ERROR) {
-                Log.e(TAG, "engine.speak() returned ERROR")
-                _lastError.value = "Failed to start speech"
-                _state.value = TtsState.READY
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception during speak()", e)
-            _state.value = TtsState.READY
-        }
-    }
+            playAudio(samples, sampleRate)
 
-    fun stop() {
-        Log.d(TAG, "stop() requested")
-        try {
-            tts?.stop()
-        } finally {
             if (_state.value != TtsState.SHUTDOWN) {
                 _state.value = TtsState.READY
             }
+        } catch (e: Exception) {
+            _lastError.value = "Speech synthesis failed: ${e.message}"
+            _state.value = TtsState.ERROR
+        }
+    }
+
+    private fun playAudio(samples: ShortArray, sampleRate: Int) {
+        val minBufferSize = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+
+        val audioTrack = AudioTrack(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build(),
+            AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(sampleRate)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build(),
+            maxOf(minBufferSize, samples.size * 2),
+            AudioTrack.MODE_STATIC,
+            AudioManager.AUDIO_SESSION_ID_GENERATE
+        )
+
+        audioTrack.write(samples, 0, samples.size)
+        audioTrack.play()
+
+        val durationMs = (samples.size.toFloat() / sampleRate * 1000).toLong()
+        Thread {
+            Thread.sleep(durationMs + 200)
+            audioTrack.stop()
+            audioTrack.release()
+        }.start()
+    }
+
+    fun stop() {
+        if (_state.value != TtsState.SHUTDOWN && _state.value != TtsState.ERROR) {
+            _state.value = TtsState.READY
         }
     }
 
     fun shutdown() {
-        Log.d(TAG, "shutdown() requested")
-        initialized = false
-        _state.value = TtsState.SHUTDOWN
         try {
-            tts?.stop()
-            tts?.shutdown()
+            activePiperEngine?.release()
         } catch (e: Exception) {
-            Log.e(TAG, "Error during TTS shutdown", e)
-        } finally {
-            tts = null
+            // Ignore release errors
         }
-    }
+        activePiperEngine = null
+        activePiperLanguage = null
 
-    companion object {
-        private const val TAG = "TtsManager"
+        initializedNonPiperEngines.keys.forEach { engine ->
+            try {
+                engine.release()
+            } catch (e: Exception) {
+                // Ignore release errors on shutdown
+            }
+        }
+        initializedNonPiperEngines.clear()
+        _state.value = TtsState.SHUTDOWN
     }
 }

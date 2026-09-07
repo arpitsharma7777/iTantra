@@ -2,13 +2,8 @@ package com.itantra.app.core.model
 
 data class Message(
     val id: String,
-    val text: String,
     val sender: String,
-    val timestamp: Long,
-    val language: Language
+    val language: Language,
+    val text: String,
+    val timestamp: Long
 )
-
-object Sender {
-    const val LOCAL = "LOCAL"
-    const val REMOTE = "REMOTE"
-}
