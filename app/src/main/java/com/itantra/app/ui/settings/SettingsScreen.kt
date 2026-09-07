@@ -21,7 +21,8 @@ import com.itantra.app.ui.state.AppViewModel
 @Composable
 fun SettingsScreen(
     viewModel: AppViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToDeveloper: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -95,7 +96,16 @@ fun SettingsScreen(
             InfoRow(label = "Package", value = "com.itantra.app")
             
             Spacer(modifier = Modifier.weight(1f))
-            
+
+            TextButton(
+                onClick = onNavigateToDeveloper,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Developer Metrics", color = MaterialTheme.colorScheme.primary)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 text = "© 2026 iTantra Team",
                 style = MaterialTheme.typography.labelSmall,

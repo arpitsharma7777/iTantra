@@ -221,7 +221,9 @@ fun StatusCard(connectionState: ConnectionState) {
                     text = when (connectionState) {
                         is ConnectionState.Disconnected -> "Status: Disconnected"
                         is ConnectionState.Discovering -> "Status: Discovering..."
+                        is ConnectionState.Connecting -> "Status: Connecting..."
                         is ConnectionState.Connected -> "Status: Connected to ${connectionState.deviceName}"
+                        is ConnectionState.Error -> "Status: Error - ${connectionState.reason}"
                     },
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp

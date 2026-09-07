@@ -25,6 +25,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.app.core.model.ConnectionState
+import com.itantra.app.transport.WifiDirectDevice
 import com.itantra.app.ui.state.AppUiState
 import com.itantra.app.ui.theme.ITantraTheme
 import com.itantra.app.ui.theme.PrimaryRed
@@ -36,8 +37,9 @@ import kotlinx.coroutines.delay
 @Composable
 fun ConnectionScreen(
     connectionState: ConnectionState,
+    discoveredDevices: List<WifiDirectDevice> = emptyList(),
     onStartScan: () -> Unit,
-    onDeviceClick: (String) -> Unit,
+    onDeviceClick: (WifiDirectDevice) -> Unit,
     onBackClick: () -> Unit,
     onStartCommunication: () -> Unit = {}
 ) {
@@ -119,13 +121,21 @@ fun ConnectionScreen(
                     }
                 }
                 is ConnectionState.Discovering -> {
-                    var showDevices by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        delay(2000)
-                        showDevices = true
-                    }
-                    if (showDevices) {
-                        MockDeviceList(onDeviceClick)
+                    if (discoveredDevices.isNotEmpty()) {
+                        DeviceList(devices = discoveredDevices, onDeviceClick = onDeviceClick)
+                    } else {
+                        var showHint by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
+                            delay(2000)
+                            showHint = true
+                        }
+                        if (showHint) {
+                            Text(
+                                text = "Searching for nearby devices...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray
+                            )
+                        }
                     }
                 }
                 is ConnectionState.Disconnected -> {
@@ -138,6 +148,31 @@ fun ConnectionScreen(
                         Icon(Icons.Default.WifiTethering, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("CONNECT DEVICE", fontWeight = FontWeight.Bold)
+                    }
+                }
+                is ConnectionState.Connecting -> {
+                    Text(
+                        text = "Connecting to device...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = ScanningPurple,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                is ConnectionState.Error -> {
+                    Text(
+                        text = "Error: ${connectionState.reason}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.Red,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onStartScan,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("TRY AGAIN", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -271,7 +306,7 @@ fun ScanningStatusPill(text: String, isScanning: Boolean) {
 }
 
 @Composable
-fun MockDeviceList(onDeviceClick: (String) -> Unit) {
+fun DeviceList(devices: List<WifiDirectDevice>, onDeviceClick: (WifiDirectDevice) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -279,10 +314,10 @@ fun MockDeviceList(onDeviceClick: (String) -> Unit) {
         shape = RoundedCornerShape(16.dp)
     ) {
         LazyColumn(modifier = Modifier.padding(8.dp)) {
-            items(listOf("iTantra Glasses v1", "iTantra Pro-Node", "Relay-Alpha")) { device ->
+            items(devices) { device ->
                 ListItem(
-                    headlineContent = { Text(device, fontWeight = FontWeight.Medium) },
-                    trailingContent = { 
+                    headlineContent = { Text(device.name, fontWeight = FontWeight.Medium) },
+                    trailingContent = {
                         TextButton(onClick = { onDeviceClick(device) }) {
                             Text("Connect", color = PrimaryRed)
                         }
