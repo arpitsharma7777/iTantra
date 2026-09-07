@@ -1,253 +1,321 @@
 package com.itantra.app.ui.connection
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiTethering
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.itantra.app.core.model.ConnectionState
-import com.itantra.app.transport.WifiDirectDevice
 import com.itantra.app.ui.state.AppUiState
+import com.itantra.app.ui.theme.ITantraTheme
+import com.itantra.app.ui.theme.PrimaryRed
+import com.itantra.app.ui.theme.ScanningPurple
+import com.itantra.app.ui.theme.SecondaryLavender
+import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectionScreen(
-    uiState: AppUiState,
-    onDiscoverClicked: () -> Unit,
-    onConnectClicked: (WifiDirectDevice) -> Unit,
-    onDisconnectClicked: () -> Unit,
-    onNavigateToCommunication: () -> Unit,
-    onClearError: () -> Unit = {},
-    onBack: () -> Unit
+    connectionState: ConnectionState,
+    onStartScan: () -> Unit,
+    onDeviceClick: (String) -> Unit,
+    onBackClick: () -> Unit,
+    onStartCommunication: () -> Unit = {}
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "Connection Manager", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(24.dp))
-
-        ErrorMessage(uiState.errorMessage, onClearError)
-
-        when (uiState.connectionState) {
-            ConnectionState.DISCONNECTED -> {
-                DisconnectedContent(
-                    hasDevices = uiState.discoveredDevices.isNotEmpty(),
-                    devices = uiState.discoveredDevices,
-                    onDiscoverClicked = onDiscoverClicked,
-                    onConnectClicked = onConnectClicked
-                )
-            }
-
-            ConnectionState.DISCOVERING -> {
-                DiscoveringContent(
-                    devices = uiState.discoveredDevices,
-                    onDiscoverClicked = onDiscoverClicked,
-                    onConnectClicked = onConnectClicked
-                )
-            }
-
-            ConnectionState.CONNECTING -> {
-                ConnectingContent(onDisconnectClicked)
-            }
-
-            ConnectionState.CONNECTED -> {
-                ConnectedContent(
-                    deviceName = uiState.connectedDeviceName ?: "Connected device",
-                    onDisconnectClicked = onDisconnectClicked,
-                    onNavigateToCommunication = onNavigateToCommunication
-                )
-            }
-
-            ConnectionState.ERROR -> {
-                ErrorContent(
-                    onDiscoverClicked = onDiscoverClicked,
-                    onDisconnectClicked = onDisconnectClicked
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-            Text("Back to Home")
-        }
-    }
-}
-
-@Composable
-private fun ErrorMessage(message: String?, onClearError: () -> Unit) {
-    if (message == null) return
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Connection Manager", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = onClearError) {
-                Text("Dismiss")
-            }
         }
-    }
-    Spacer(modifier = Modifier.height(16.dp))
-}
-
-@Composable
-private fun DisconnectedContent(
-    hasDevices: Boolean,
-    devices: List<WifiDirectDevice>,
-    onDiscoverClicked: () -> Unit,
-    onConnectClicked: (WifiDirectDevice) -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = "No Device Connected", style = MaterialTheme.typography.bodyLarge)
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onDiscoverClicked) {
-            Text(if (hasDevices) "Refresh Devices" else "Discover Devices")
-        }
-        if (hasDevices) {
-            Spacer(modifier = Modifier.height(16.dp))
-            DeviceList(devices, enabled = true, onConnectClicked = onConnectClicked)
-        }
-    }
-}
-
-@Composable
-private fun DiscoveringContent(
-    devices: List<WifiDirectDevice>,
-    onDiscoverClicked: () -> Unit,
-    onConnectClicked: (WifiDirectDevice) -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator()
-            Spacer(modifier = Modifier.padding(8.dp))
-            Text(text = "Searching for nearby devices...", style = MaterialTheme.typography.bodyLarge)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedButton(onClick = onDiscoverClicked) {
-            Text("Search Again")
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        if (devices.isEmpty()) {
-            Text(
-                text = "No devices found yet. Keep both devices nearby with Wi-Fi and Location enabled.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        } else {
-            DeviceList(devices, enabled = true, onConnectClicked = onConnectClicked)
-        }
-    }
-}
-
-@Composable
-private fun ConnectingContent(onDisconnectClicked: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        CircularProgressIndicator()
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "Connecting...", style = MaterialTheme.typography.bodyLarge)
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedButton(onClick = onDisconnectClicked) {
-            Text("Cancel")
-        }
-    }
-}
-
-@Composable
-private fun ErrorContent(
-    onDiscoverClicked: () -> Unit,
-    onDisconnectClicked: () -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "Connection failed",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.error
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onDiscoverClicked) {
-            Text("Try Again")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(onClick = onDisconnectClicked) {
-            Text("Reset Connection")
-        }
-    }
-}
-
-@Composable
-private fun DeviceList(
-    devices: List<WifiDirectDevice>,
-    enabled: Boolean,
-    onConnectClicked: (WifiDirectDevice) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(devices, key = { it.address }) { device ->
-            DeviceItem(device, enabled, onConnectClicked)
-        }
-    }
-}
-
-@Composable
-private fun DeviceItem(
-    device: WifiDirectDevice,
-    enabled: Boolean,
-    onConnectClicked: (WifiDirectDevice) -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = device.name, style = MaterialTheme.typography.titleMedium)
-            Text(text = device.address, style = MaterialTheme.typography.bodySmall)
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(
-                onClick = { onConnectClicked(device) },
-                enabled = enabled
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Top App Icon
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SecondaryLavender),
+                contentAlignment = Alignment.Center
             ) {
-                Text("Connect")
+                Icon(
+                    imageVector = Icons.Default.Hub,
+                    contentDescription = null,
+                    tint = ScanningPurple,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = "Connection Manager",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Radar Animation
+            RadarIllustration(isScanning = connectionState is ConnectionState.Discovering)
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Status Pill
+            ScanningStatusPill(
+                text = if (connectionState is ConnectionState.Discovering) "SCANNING FOR DEVICES" else "NO DEVICE CONNECTED",
+                isScanning = connectionState is ConnectionState.Discovering
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // State-based content
+            when (connectionState) {
+                is ConnectionState.Connected -> {
+                    Text(
+                        text = "Connected to: ${connectionState.deviceName}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF4CAF50),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onStartCommunication,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("START COMMUNICATION", fontWeight = FontWeight.Bold)
+                    }
+                }
+                is ConnectionState.Discovering -> {
+                    var showDevices by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        delay(2000)
+                        showDevices = true
+                    }
+                    if (showDevices) {
+                        MockDeviceList(onDeviceClick)
+                    }
+                }
+                is ConnectionState.Disconnected -> {
+                    Button(
+                        onClick = onStartScan,
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryRed),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.Default.WifiTethering, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("CONNECT DEVICE", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = onBackClick,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, SecondaryLavender)
+            ) {
+                Icon(Icons.Default.Home, contentDescription = null, tint = ScanningPurple)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Back to Home", color = ScanningPurple)
             }
         }
     }
 }
 
 @Composable
-private fun ConnectedContent(
-    deviceName: String,
-    onDisconnectClicked: () -> Unit,
-    onNavigateToCommunication: () -> Unit
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = "Connected to: $deviceName",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.primary
+fun RadarIllustration(isScanning: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "radar")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "scale"
+    )
+
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(220.dp)) {
+        // Concentric Squares
+        repeat(3) { index ->
+            val size = 80.dp + (index * 40).dp
+            Box(
+                modifier = Modifier
+                    .size(if (isScanning) size * scale else size)
+                    .border(
+                        width = 1.dp,
+                        color = ScanningPurple.copy(alpha = if (isScanning) 0.2f else 0.4f),
+                        shape = RoundedCornerShape(24.dp)
+                    )
+            )
+        }
+        
+        // Inner square with icon
+        Box(
+            modifier = Modifier
+                .size(60.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(SecondaryLavender),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Wifi, contentDescription = null, tint = ScanningPurple, modifier = Modifier.size(32.dp))
+        }
+
+        // Green dot moving along the path
+        if (isScanning) {
+            val angle by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(4000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "angle"
+            )
+            
+            val radius = 90.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        rotationZ = angle
+                    }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .offset(x = radius)
+                        .clip(CircleShape)
+                        .background(Color.Green)
+                        .border(2.dp, Color.White, CircleShape)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ScanningStatusPill(text: String, isScanning: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Surface(
+        color = SecondaryLavender,
+        shape = CircleShape,
+        modifier = Modifier.border(1.dp, Color.LightGray.copy(alpha = 0.2f), CircleShape)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(ScanningPurple.copy(alpha = if (isScanning) alpha else 1f))
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = ScanningPurple,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun MockDeviceList(onDeviceClick: (String) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        LazyColumn(modifier = Modifier.padding(8.dp)) {
+            items(listOf("iTantra Glasses v1", "iTantra Pro-Node", "Relay-Alpha")) { device ->
+                ListItem(
+                    headlineContent = { Text(device, fontWeight = FontWeight.Medium) },
+                    trailingContent = { 
+                        TextButton(onClick = { onDeviceClick(device) }) {
+                            Text("Connect", color = PrimaryRed)
+                        }
+                    },
+                    modifier = Modifier.clickable { onDeviceClick(device) }
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ConnectionScreenPreview() {
+    ITantraTheme {
+        ConnectionScreen(
+            connectionState = ConnectionState.Disconnected,
+            onStartScan = {},
+            onDeviceClick = {},
+            onBackClick = {}
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onNavigateToCommunication, modifier = Modifier.fillMaxWidth()) {
-            Text("Start Communication")
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = onDisconnectClicked, modifier = Modifier.fillMaxWidth()) {
-            Text("Disconnect")
-        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ConnectionScreenScanningPreview() {
+    ITantraTheme {
+        ConnectionScreen(
+            connectionState = ConnectionState.Discovering,
+            onStartScan = {},
+            onDeviceClick = {},
+            onBackClick = {}
+        )
     }
 }

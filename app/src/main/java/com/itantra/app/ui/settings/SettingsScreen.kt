@@ -1,45 +1,34 @@
 package com.itantra.app.ui.settings
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Button
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.itantra.app.core.model.Language
-import com.itantra.app.ui.state.AppUiState
+import com.itantra.app.ui.state.AppViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    uiState: AppUiState,
-    onUpdateLanguage: (Language) -> Unit,
-    onBack: () -> Unit,
-    onNavigateToDeveloper: () -> Unit = {},
-    onClearError: () -> Unit = {}
+    viewModel: AppViewModel,
+    onBack: () -> Unit
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -55,58 +44,77 @@ fun SettingsScreen(
                 .padding(16.dp)
         ) {
             Text(
-                text = "Default Language",
+                text = "Preferred Language",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp)
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
             )
             
-            val languages = Language.entries
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                languages.forEachIndexed { index, language ->
-                    SegmentedButton(
-                        selected = language == uiState.selectedLanguage,
-                        onClick = { onUpdateLanguage(language) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = languages.size)
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Column(Modifier.selectableGroup()) {
+                Language.entries.forEach { language ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .selectable(
+                                selected = (language == uiState.selectedLanguage),
+                                onClick = { viewModel.setLanguage(language) },
+                                role = Role.RadioButton
+                            )
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(language.displayName)
+                        RadioButton(
+                            selected = (language == uiState.selectedLanguage),
+                            onClick = null
+                        )
+                        Text(
+                            text = language.displayName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(start = 16.dp)
+                        )
                     }
                 }
             }
 
-            uiState.errorMessage?.let { message ->
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
-                )
-                OutlinedButton(onClick = onClearError) {
-                    Text("Dismiss")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
 
             Text(
-                text = "Application Information",
+                text = "App Information",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp)
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
             )
-            Text(
-                text = "Name: iTantra",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = "Version: 1.0.0",
-                style = MaterialTheme.typography.bodyMedium
-            )
-
+            
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onNavigateToDeveloper) {
-                Text("Developer Dashboard")
-            }
+            
+            InfoRow(label = "Version", value = "1.0.0-alpha")
+            InfoRow(label = "Build", value = "20260905")
+            InfoRow(label = "Package", value = "com.itantra.app")
+            
+            Spacer(modifier = Modifier.weight(1f))
+            
+            Text(
+                text = "© 2026 iTantra Team",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
+    }
+}
+
+@Composable
+fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
