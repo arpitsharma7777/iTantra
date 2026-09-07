@@ -11,6 +11,7 @@ import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Language
 import com.itantra.app.core.model.Message
 import com.itantra.app.stt.SttManager
+import com.itantra.app.stt.VadManager
 import com.itantra.app.transport.TransportManager
 import com.itantra.app.transport.WifiDirectDevice
 import com.itantra.app.tts.TtsManager
@@ -41,7 +42,8 @@ class AppViewModel(
             communicationManager = null
         } else {
             transportManager = TransportManager(appContext)
-            sttManager = SttManager(appContext)
+            val vadManager = VadManager(appContext)
+            sttManager = SttManager(appContext, vadManager)
             ttsManager = TtsManager(appContext)
             val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             communicationManager = CommunicationManager(

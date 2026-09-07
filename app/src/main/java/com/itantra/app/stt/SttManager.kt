@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlin.math.sqrt
+import kotlinx.coroutines.channels.Channel
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 
@@ -35,14 +36,18 @@ data class SttResult(
     val sessionId: Int,
     val language: Language,
     val partialText: String? = null,
-    val finalText: String? = null
+    val finalText: String? = null,
 )
 
 /**
  * Sravaani/SarVaani Multilingual STT Manager for offline on-device speech recognition
  * supporting Hindi, Gujarati, Marathi, Kannada, Malayalam, Tamil, Telugu, Odia, Bengali, and English.
  */
-class SttManager(private val context: Context) {
+class SttManager(
+    private val context: Context,
+    private val vadManager: VadManager,
+    internal var assetOpener: (String) -> java.io.InputStream = { context.assets.open(it) },
+) {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -77,7 +82,7 @@ class SttManager(private val context: Context) {
         scope.launch {
             try {
                 // Load Sravaani configuration from assets
-                val configJsonString = context.assets.open("sravaani/config.json").use { inputStream ->
+                val configJsonString = assetOpener("sravaani/config.json").use { inputStream ->
                     inputStream.bufferedReader().readText()
                 }
                 val configJson = JSONObject(configJsonString)
@@ -90,16 +95,21 @@ class SttManager(private val context: Context) {
                 withContext(Dispatchers.IO) {
                     try {
                         ortEnv = OrtEnvironment.getEnvironment()
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         Log.w(TAG, "ONNX Environment initialization notice: ${e.message}")
                     }
+                }
+                try {
+                    vadManager.initialize()
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Failed to initialize VadManager", e)
                 }
 
                 val loadDuration = System.currentTimeMillis() - startTime
                 MetricsManager.recordSttModelLoadTime(loadDuration)
                 Log.d(TAG, "Sravaani STT model initialized successfully in ${loadDuration}ms for $language")
                 _state.value = SttState.READY
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Failed to initialize Sravaani STT model for $language", e)
                 _lastError.value = "Sravaani model load failed: ${e.message}"
                 _state.value = SttState.ERROR
@@ -152,7 +162,7 @@ class SttManager(private val context: Context) {
                 sampleRate,
                 channelConfig,
                 audioFormat,
-                bufferSize
+                bufferSize,
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
@@ -167,44 +177,104 @@ class SttManager(private val context: Context) {
 
             val sessionStartTime = System.currentTimeMillis()
 
-            recordingJob = scope.launch(Dispatchers.IO) {
-                val buffer = ShortArray(1024)
-                val accumulatedText = StringBuilder()
-                var readCount = 0
+            // Producer-Consumer split using Kotlin Channel.
+            // Capacity = 100 buffers (each buffer is 1024 shorts / 2048 bytes).
+            // 100 * 64ms = ~6.4 seconds of backpressure buffer.
+            // If the consumer (VAD + STT) temporarily lags behind, sending to the channel 
+            // will suspend the producer (AudioRecord read loop), preventing unbounded memory growth.
+            // Once the channel is full, AudioRecord's internal driver buffer will naturally 
+            // drop oldest unread frames, protecting the app from OutOfMemoryErrors.
+            val audioChannel = Channel<ShortArray>(capacity = 100)
 
-                while (_state.value == SttState.LISTENING && activeSessionId == sessionId) {
-                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
-                    if (read > 0) {
-                        readCount += read
-                        val partialChunk = processSravaaniAudioChunk(buffer, read)
-                        if (partialChunk.isNotBlank()) {
-                            if (accumulatedText.isNotEmpty()) accumulatedText.append(" ")
-                            accumulatedText.append(partialChunk)
-                            val currentText = accumulatedText.toString()
+            recordingJob = scope.launch(Dispatchers.IO) {
+                // Consumer coroutine running concurrently inside the same job scope
+                launch(Dispatchers.IO) {
+                    val accumulatedText = StringBuilder()
+                    var endSilenceTriggered = false
+                    vadManager.resetState()
+                    val vadStateMachine = VadStateMachine()
+                    var speechDetected = false
+
+                    try {
+                        for (chunk in audioChannel) {
+                            if (_state.value != SttState.LISTENING || activeSessionId != sessionId) break
+
+                            // Split 1024-sample read into two 512-sample ShortArray slices
+                            val frame1 = chunk.copyOfRange(0, 512)
+                            val frame2 = chunk.copyOfRange(512, 1024)
+                            val frames = listOf(frame1, frame2)
+
+                            for (frame in frames) {
+                                val prob = vadManager.processFrame(frame)
+                                val outputFrames = vadStateMachine.processFrame(frame, prob)
+
+                                val currentState = vadStateMachine.state.value
+                                if (currentState == VadState.SPEECH || currentState == VadState.POSSIBLE_SILENCE) {
+                                    speechDetected = true
+                                }
+
+                                // If speech was detected and we have transitioned back to IDLE, 
+                                // minimumSilenceDurationMs has been fully respected. Finalize session.
+                                if (speechDetected && currentState == VadState.IDLE) {
+                                    endSilenceTriggered = true
+                                    break
+                                }
+
+                                // Gate calls to processSravaaniAudioChunk() on VadStateMachine output
+                                for (outFrame in outputFrames) {
+                                    val partialChunk = processSravaaniAudioChunk(outFrame, outFrame.size)
+                                    if (partialChunk.isNotBlank()) {
+                                        if (accumulatedText.isNotEmpty()) accumulatedText.append(" ")
+                                        accumulatedText.append(partialChunk)
+                                        val currentText = accumulatedText.toString()
+                                        _result.value = SttResult(
+                                            sessionId = sessionId,
+                                            language = language,
+                                            partialText = currentText,
+                                        )
+                                    }
+                                }
+                            }
+                            if (endSilenceTriggered) break
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error in VAD consumer loop for session $sessionId", e)
+                    } finally {
+                        if (activeSessionId == sessionId) {
+                            val recognizedText = accumulatedText.toString().ifBlank {
+                                getSampleTextForLanguage(language)
+                            }
+                            val recognitionDuration = System.currentTimeMillis() - sessionStartTime
+                            MetricsManager.recordSttRecognitionLatency(recognitionDuration)
+
+                            Log.d(TAG, "Sravaani final result ($sessionId): \"$recognizedText\" in $language")
                             _result.value = SttResult(
                                 sessionId = sessionId,
                                 language = language,
-                                partialText = currentText
+                                finalText = recognizedText,
                             )
+                            MetricsManager.markSttComplete(sessionId.toString(), System.currentTimeMillis())
+
+                            if (endSilenceTriggered) {
+                                cleanupSession(sessionId, isError = false)
+                            }
                         }
                     }
                 }
 
-                // Session complete / stopped
-                if (activeSessionId == sessionId) {
-                    val recognizedText = accumulatedText.toString().ifBlank {
-                        getSampleTextForLanguage(language)
+                // Producer loop: reads from AudioRecord and sends to channel
+                val buffer = ShortArray(1024)
+                try {
+                    while ((_state.value == SttState.LISTENING) && (activeSessionId == sessionId)) {
+                        val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
+                        if (read == 1024) {
+                            audioChannel.send(buffer.copyOf())
+                        }
                     }
-                    val recognitionDuration = System.currentTimeMillis() - sessionStartTime
-                    MetricsManager.recordSttRecognitionLatency(recognitionDuration)
-
-                    Log.d(TAG, "Sravaani final result ($sessionId): \"$recognizedText\" in $language")
-                    _result.value = SttResult(
-                        sessionId = sessionId,
-                        language = language,
-                        finalText = recognizedText
-                    )
-                    MetricsManager.markSttComplete(sessionId.toString(), System.currentTimeMillis())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in AudioRecord producer loop for session $sessionId", e)
+                } finally {
+                    audioChannel.close()
                 }
             }
 
@@ -231,7 +301,7 @@ class SttManager(private val context: Context) {
         }
         val rms = sqrt(sumSq / readSize)
         return if (rms > 500) {
-            ""
+            "..."
         } else {
             ""
         }
@@ -264,7 +334,7 @@ class SttManager(private val context: Context) {
     }
 
     private fun cleanupSession(sessionId: Int, isError: Boolean = false) {
-        if (activeSessionId == sessionId || activeSessionId == -1) {
+        if ((activeSessionId == sessionId) || (activeSessionId == -1)) {
             activeSessionId = -1
             try {
                 if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
@@ -287,8 +357,9 @@ class SttManager(private val context: Context) {
         try {
             ortSession?.close()
             ortEnv?.close()
+            vadManager.release()
         } catch (e: Exception) {
-            Log.e(TAG, "Error closing ONNX Runtime resources", e)
+            Log.e(TAG, "Error closing ONNX Runtime or VAD resources", e)
         } finally {
             ortSession = null
             ortEnv = null
