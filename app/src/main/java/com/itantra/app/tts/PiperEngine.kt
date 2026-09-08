@@ -24,7 +24,10 @@ class PiperEngine(
 
         if (!modelFile.exists()) throw IllegalStateException("Piper model not found: ${modelFile.absolutePath}")
         if (!tokensFile.exists()) throw IllegalStateException("Piper tokens not found: ${tokensFile.absolutePath}")
-        if (!dataDir.exists()) copyEspeakNgData(dataDir)
+        if (!dataDir.exists() || !File(dataDir, "intonations").exists()) {
+            if (dataDir.exists()) dataDir.deleteRecursively()
+            copyEspeakNgData(dataDir)
+        }
 
         val vitsConfig = OfflineTtsVitsModelConfig(
             model = modelFile.absolutePath,
