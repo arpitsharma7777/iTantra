@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Language
 import com.itantra.app.core.model.Message
+import com.itantra.app.stt.LanguageVaultManager
 import com.itantra.app.stt.SttManager
 import com.itantra.app.stt.SttState
 import com.itantra.app.stt.VadManager
@@ -30,6 +31,7 @@ class AppViewModel(
     private val transportManager: TransportManager?
     private val sttManager: SttManager?
     private val ttsManager: TtsManager?
+    val vaultManager: LanguageVaultManager?
 
     init {
         val appContext = context?.applicationContext
@@ -37,15 +39,32 @@ class AppViewModel(
             transportManager = null
             sttManager = null
             ttsManager = null
+            vaultManager = null
         } else {
+            vaultManager = LanguageVaultManager(appContext)
+            vaultManager.initializeFromAssets()
+
             transportManager = TransportManager(appContext)
             val vadManager = VadManager(appContext)
-            sttManager = SttManager(appContext, vadManager)
-            ttsManager = TtsManager(appContext)
+            sttManager = SttManager(appContext, vadManager, vaultManager)
+            ttsManager = TtsManager(appContext, vaultManager)
 
             bindManagers()
             ttsManager.initialize()
-            sttManager.initialize(_uiState.value.selectedLanguage)
+
+            updateDownloadedLanguages()
+
+            val selectedLang = _uiState.value.selectedLanguage
+            val langCode = getLanguageCode(selectedLang)
+            val modelAvailable = langCode != null && (
+                vaultManager.isModelDownloaded(langCode) ||
+                vaultManager.isModelPreloaded(langCode)
+            )
+            if (modelAvailable) {
+                sttManager.initialize(selectedLang)
+            } else {
+                Log.d(TAG, "Selected language $selectedLang not available, STT not initialized")
+            }
         }
     }
 
@@ -72,6 +91,26 @@ class AppViewModel(
         viewModelScope.launch {
             stt.state.collect { state ->
                 _uiState.update { it.copy(sttState = state) }
+                if (state == SttState.READY && _uiState.value.isRecording) {
+                    _uiState.update { it.copy(isRecording = false) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            stt.result.collect { result ->
+                if (result != null) {
+                    val partial = result.partialText ?: ""
+                    val final = result.finalText ?: ""
+                    _uiState.update {
+                        it.copy(
+                            partialText = partial,
+                            recognizedText = final.ifBlank { partial }
+                        )
+                    }
+                    if (final.isNotBlank() && !_uiState.value.isRecording) {
+                        autoSend(final)
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -98,6 +137,17 @@ class AppViewModel(
                     Log.e(TAG, "TTS playback failed: ${e.message}")
                 }
             }
+        }
+    }
+
+    private fun updateDownloadedLanguages() {
+        val vm = vaultManager ?: return
+        val downloaded = vm.getDownloadedLanguages()
+        _uiState.update {
+            it.copy(
+                downloadedLanguages = downloaded,
+                downloadedCount = downloaded.size,
+            )
         }
     }
 
@@ -138,6 +188,21 @@ class AppViewModel(
         sttManager?.switchLanguage(language)
     }
 
+    fun isLanguageDownloaded(language: Language): Boolean {
+        val langCode = getLanguageCode(language) ?: return false
+        return vaultManager?.isModelDownloaded(langCode) ?: false
+    }
+
+    fun toggleRecording() {
+        Log.d(TAG, "toggleRecording() called, isRecording=${_uiState.value.isRecording}")
+        clearError()
+        if (_uiState.value.isRecording) {
+            stopSpeaking()
+        } else {
+            startSpeaking()
+        }
+    }
+
     fun startSpeaking() {
         Log.d(TAG, "startSpeaking() called")
         clearError()
@@ -145,15 +210,42 @@ class AppViewModel(
             showError("Speech is not available")
             return
         }
+        val language = _uiState.value.selectedLanguage
+        if (!isLanguageDownloaded(language)) {
+            showError("Please download ${language.displayName} model in Language Vault first")
+            return
+        }
         val sessionId = sttManager.startListening()
         if (sessionId == -1) {
             showError(sttManager.lastError.value ?: "Failed to start listening")
+        } else {
+            _uiState.update { it.copy(isRecording = true, partialText = "", recognizedText = "") }
         }
     }
 
     fun stopSpeaking() {
         Log.d(TAG, "stopSpeaking() called")
         sttManager?.stopListening()
+    }
+
+    private fun autoSend(text: String) {
+        val transport = transportManager
+        if (transport == null || text.isBlank()) return
+
+        viewModelScope.launch {
+            val message = com.itantra.app.communication.MessageFactory.createOutgoingMessage(
+                text = text,
+                language = _uiState.value.selectedLanguage,
+                senderId = "local"
+            )
+            try {
+                transport.send(message)
+                _uiState.update { it.copy(messages = it.messages + message, partialText = "", recognizedText = "") }
+            } catch (e: Exception) {
+                Log.e(TAG, "Auto-send failed: ${e.message}")
+                showError("Failed to send: ${e.message}")
+            }
+        }
     }
 
     fun sendCurrentMessage() {
@@ -203,11 +295,30 @@ class AppViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    fun refreshDownloadedLanguages() {
+        updateDownloadedLanguages()
+    }
+
     override fun onCleared() {
         sttManager?.shutdown()
         ttsManager?.shutdown()
         transportManager?.cleanup()
         super.onCleared()
+    }
+
+    private fun getLanguageCode(language: Language): String? {
+        return when (language) {
+            Language.ENGLISH -> "en"
+            Language.HINDI -> "hi"
+            Language.BENGALI -> "bn"
+            Language.GUJARATI -> "gu"
+            Language.MARATHI -> "mr"
+            Language.KANNADA -> "kn"
+            Language.MALAYALAM -> "ml"
+            Language.TAMIL -> "ta"
+            Language.TELUGU -> "te"
+            else -> null
+        }
     }
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {

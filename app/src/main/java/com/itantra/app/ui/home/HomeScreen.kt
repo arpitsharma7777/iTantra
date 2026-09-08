@@ -3,8 +3,11 @@ package com.itantra.app.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -34,11 +37,12 @@ fun HomeScreen(
     onLanguageSelect: (Language) -> Unit,
     onConnectClick: () -> Unit,
     onCommunicateClick: () -> Unit,
-    onNavigateToTab: (String) -> Unit
+    onNavigateToTab: (String) -> Unit,
+    onNavigateToVault: () -> Unit = {},
 ) {
     Scaffold(
         bottomBar = {
-            NavigationBar(containerColor = Color.White) {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 NavigationBarItem(
                     selected = true,
                     onClick = { onNavigateToTab("Features") },
@@ -68,8 +72,10 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .padding(paddingValues)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Top Language Selector
@@ -106,13 +112,12 @@ fun HomeScreen(
             Text(
                 text = "iTantra",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                fontSize = 28.sp
+                fontWeight = FontWeight.Bold
             )
             Text(
                 text = "Indian Multilingual Communication",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.Gray
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -145,6 +150,16 @@ fun HomeScreen(
                 icon = Icons.Default.RecordVoiceOver,
                 onClick = onCommunicateClick,
                 enabled = uiState.connectionState is ConnectionState.Connected
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ActionCard(
+                title = "Language Vault",
+                subtitle = "${uiState.downloadedCount}/${uiState.totalLanguages} models downloaded",
+                icon = Icons.Default.Language,
+                onClick = onNavigateToVault,
+                enabled = true
             )
         }
     }
@@ -327,7 +342,8 @@ fun HomeScreenPreview() {
             onLanguageSelect = {},
             onConnectClick = {},
             onCommunicateClick = {},
-            onNavigateToTab = {}
+            onNavigateToTab = {},
+            onNavigateToVault = {}
         )
     }
 }

@@ -1,7 +1,10 @@
 package com.itantra.app.ui.settings
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -22,7 +25,9 @@ import com.itantra.app.ui.state.AppViewModel
 fun SettingsScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
-    onNavigateToDeveloper: () -> Unit = {}
+    onNavigateToDeveloper: () -> Unit = {},
+    onNavigateToBenchmark: () -> Unit = {},
+    onNavigateToVault: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -41,8 +46,10 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .padding(paddingValues)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
             Text(
                 text = "Preferred Language",
@@ -98,10 +105,28 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             TextButton(
+                onClick = onNavigateToVault,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Language Vault (${uiState.downloadedCount}/${uiState.totalLanguages})", color = MaterialTheme.colorScheme.primary)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
                 onClick = onNavigateToDeveloper,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Developer Metrics", color = MaterialTheme.colorScheme.primary)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
+                onClick = onNavigateToBenchmark,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Benchmark Runner", color = MaterialTheme.colorScheme.primary)
             }
 
             Spacer(modifier = Modifier.height(8.dp))

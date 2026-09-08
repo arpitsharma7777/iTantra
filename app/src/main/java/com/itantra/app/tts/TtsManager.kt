@@ -7,13 +7,17 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.util.Log
 import com.itantra.app.core.model.Language
+import com.itantra.app.stt.LanguageVaultManager
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 enum class TtsState {
@@ -24,34 +28,20 @@ enum class TtsState {
     SHUTDOWN
 }
 
-class TtsManager(private val context: Context) {
+class TtsManager(
+    private val context: Context,
+    private val vaultManager: LanguageVaultManager? = null
+) {
 
     private var activePiperEngine: PiperEngine? = null
     private var activePiperLanguage: Language? = null
     private val piperMutex = Mutex()
 
     private val vitsRasaEngine: TtsEngine by lazy { VitsRasaEngine(context) }
-    private val hindiMmsEngine: TtsEngine by lazy {
-        MmsEngine(
-            context, "tts/mms-hin/mms_tts_hin.onnx", "tts/mms-hin/vocab_hin.json",
-            "mms_hin.onnx", "vocab_hin.json", maxValidTokenId = 71L
-        )
-    }
-    private val gujaratiEngine: TtsEngine by lazy {
-        MmsEngine(
-            context, "tts/mms-guj/mms_tts_guj.onnx", "tts/mms-guj/vocab_guj.json",
-            "mms_guj.onnx", "vocab_guj.json", maxValidTokenId = 58L
-        )
-    }
-    private val odiaEngine: TtsEngine by lazy {
-        MmsEngine(
-            context, "tts/mms-ory/mms_tts_ory.onnx", "tts/mms-ory/vocab_ory.json",
-            "mms_ory.onnx", "vocab_ory.json", maxValidTokenId = 75L
-        )
-    }
 
     private val nonPiperMutexes = ConcurrentHashMap<TtsEngine, Mutex>()
     private val initializedNonPiperEngines = ConcurrentHashMap<TtsEngine, Boolean>()
+    private var vitsRasaInitialized = false
 
     private val _state = MutableStateFlow(TtsState.INITIALIZING)
     val state: StateFlow<TtsState> = _state.asStateFlow()
@@ -61,6 +51,7 @@ class TtsManager(private val context: Context) {
 
     fun initialize() {
         _state.value = TtsState.READY
+        Log.d(TAG, "TTS engine initialized (engines load on-demand)")
     }
 
     private suspend fun getPiperEngine(language: Language): PiperEngine {
@@ -69,11 +60,9 @@ class TtsManager(private val context: Context) {
                 Log.d("TtsManager", "Swapping Piper engine to language: $language")
                 _state.value = TtsState.INITIALIZING
                 activePiperEngine?.release()
-                val (assetDir, destDir, speakerId) = when (language) {
-                    Language.ENGLISH -> Triple("tts/piper-en", "piper_en", 630)
-                    else -> throw IllegalArgumentException("Not a Piper language: $language")
-                }
-                val engine = PiperEngine(context, assetDir, destDir, speakerId)
+                val modelDir = vaultManager?.getTtsModelDir("piper-en")
+                    ?: throw IllegalStateException("Piper English TTS model not downloaded. Please download it in Language Vault.")
+                val engine = PiperEngine(context, modelDir, speakerId = 630)
                 engine.initialize()
                 activePiperEngine = engine
                 activePiperLanguage = language
@@ -91,7 +80,17 @@ class TtsManager(private val context: Context) {
                 _state.value = TtsState.INITIALIZING
                 engine.initialize()
                 initializedNonPiperEngines[engine] = true
+                if (engine === vitsRasaEngine) {
+                    vitsRasaInitialized = true
+                }
             }
+        }
+    }
+
+    fun isTtsAvailable(language: Language): Boolean {
+        return when (language) {
+            Language.ENGLISH -> vaultManager?.isTtsModelDownloaded("piper-en") == true
+            else -> vaultManager?.isTtsModelDownloaded("vits-rasa") == true
         }
     }
 
@@ -109,34 +108,22 @@ class TtsManager(private val context: Context) {
                     _state.value = TtsState.SPEAKING
                     Pair(engine.synthesize(text, "en"), 22050)
                 }
-                Language.HINDI -> {
-                    ensureNonPiperEngineInitialized(hindiMmsEngine, language)
-                    _state.value = TtsState.SPEAKING
-                    Pair(hindiMmsEngine.synthesize(text, "hi"), 16000)
-                }
-                Language.MALAYALAM, Language.BENGALI, Language.KANNADA, Language.MARATHI, Language.TAMIL, Language.TELUGU -> {
+                else -> {
                     ensureNonPiperEngineInitialized(vitsRasaEngine, language)
                     _state.value = TtsState.SPEAKING
                     val langCode = when (language) {
-                        Language.MALAYALAM -> "ml"
+                        Language.HINDI -> "hi"
                         Language.BENGALI -> "bn"
                         Language.KANNADA -> "kn"
+                        Language.MALAYALAM -> "ml"
                         Language.MARATHI -> "mr"
                         Language.TAMIL -> "ta"
                         Language.TELUGU -> "te"
+                        Language.GUJARATI -> "gu"
+                        Language.ODIA -> "or"
                         else -> "bn"
                     }
                     Pair(vitsRasaEngine.synthesize(text, langCode), 24000)
-                }
-                Language.GUJARATI -> {
-                    ensureNonPiperEngineInitialized(gujaratiEngine, language)
-                    _state.value = TtsState.SPEAKING
-                    Pair(gujaratiEngine.synthesize(text, "gu"), 16000)
-                }
-                Language.ODIA -> {
-                    ensureNonPiperEngineInitialized(odiaEngine, language)
-                    _state.value = TtsState.SPEAKING
-                    Pair(odiaEngine.synthesize(text, "or"), 16000)
                 }
             }
 
@@ -207,6 +194,20 @@ class TtsManager(private val context: Context) {
             }
         }
         initializedNonPiperEngines.clear()
+
+        if (vitsRasaInitialized) {
+            try {
+                vitsRasaEngine.release()
+            } catch (e: Exception) {
+                // Ignore release errors on shutdown
+            }
+            vitsRasaInitialized = false
+        }
+
         _state.value = TtsState.SHUTDOWN
+    }
+
+    companion object {
+        private const val TAG = "TtsManager"
     }
 }

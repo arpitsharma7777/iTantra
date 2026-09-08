@@ -19,11 +19,15 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -40,12 +44,15 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
-            pickFirsts += listOf("**/libonnxruntime.so")
+            pickFirsts += listOf("**/libonnxruntime.so", "**/libonnxruntime4j_jni.so")
         }
     }
 }
@@ -60,14 +67,19 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material3:material3-window-size-class:1.2.1")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
-    implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.10.46.aar"))
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.17.0")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    implementation(files("libs/sherpa-onnx-1.13.7.aar"))
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.21.0") {
+        exclude(group = "net.java.dev.jna")
+    }
+    implementation("org.apache.commons:commons-compress:1.26.1")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
