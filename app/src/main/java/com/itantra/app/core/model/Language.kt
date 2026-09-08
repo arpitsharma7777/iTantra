@@ -10,5 +10,22 @@ enum class Language(val displayName: String, val code: String) {
     TAMIL("தமிழ்", "ta"),
     TELUGU("తెలుగు", "te"),
     GUJARATI("ગુજરાતી", "gu"),
-    ODIA("ଓଡ଼ିଆ", "or")
+    ODIA("ଓଡ଼ିଆ", "or");
+
+    val indicConformerCode: String?
+        get() = when (this) {
+            ENGLISH -> "en"
+            HINDI -> "hi"
+            BENGALI -> "bn"
+            GUJARATI -> "gu"
+            MARATHI -> "mr"
+            KANNADA -> "kn"
+            MALAYALAM -> "ml"
+            TAMIL -> "ta"
+            TELUGU -> "te"
+            ODIA -> null
+        }
+
+    val isIndicConformerSupported: Boolean
+        get() = indicConformerCode != null
 }

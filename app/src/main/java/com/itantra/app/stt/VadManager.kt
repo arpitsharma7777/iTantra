@@ -73,8 +73,8 @@ class VadManager(private val context: Context) {
             
             Log.d(TAG, "VadManager initialized successfully. Detected model version: ${if (isV5) "v5" else "v4"}")
         } catch (e: Throwable) {
-            Log.w(TAG, "Failed to initialize VadManager (native libraries may be missing in JVM unit test environment): ${e.message}")
-            kotlinx.coroutines.delay(10)
+            Log.e(TAG, "Failed to initialize VadManager: ${e.message}", e)
+            throw e
         }
     }
 
@@ -203,13 +203,18 @@ class VadManager(private val context: Context) {
 
             // Initialize state tensors with zeros dynamically based on expected shape
             if (isV5) {
-                val stateShape = (inputInfo["state"]?.info as? TensorInfo)?.shape ?: longArrayOf(2, 1, 128)
+                val rawShape = (inputInfo["state"]?.info as? TensorInfo)?.shape ?: longArrayOf(2, 1, 128)
+                // Replace dynamic -1 dimensions with 1 (batch size)
+                val stateShape = rawShape.map { if (it < 0) 1L else it }.toLongArray()
                 val totalElements = stateShape.reduce { acc, l -> acc * l }.toInt()
                 val zeroBuffer = FloatBuffer.wrap(FloatArray(totalElements))
                 stateTensor = OnnxTensor.createTensor(env, zeroBuffer, stateShape)
+                Log.d(TAG, "V5 state tensor created with shape: ${stateShape.joinToString()}, elements=$totalElements")
             } else if (isV4) {
-                val hShape = (inputInfo["h"]?.info as? TensorInfo)?.shape ?: longArrayOf(2, 1, 64)
-                val cShape = (inputInfo["c"]?.info as? TensorInfo)?.shape ?: longArrayOf(2, 1, 64)
+                val hRawShape = (inputInfo["h"]?.info as? TensorInfo)?.shape ?: longArrayOf(2, 1, 64)
+                val cRawShape = (inputInfo["c"]?.info as? TensorInfo)?.shape ?: longArrayOf(2, 1, 64)
+                val hShape = hRawShape.map { if (it < 0) 1L else it }.toLongArray()
+                val cShape = cRawShape.map { if (it < 0) 1L else it }.toLongArray()
                 
                 val hElements = hShape.reduce { acc, l -> acc * l }.toInt()
                 val cElements = cShape.reduce { acc, l -> acc * l }.toInt()

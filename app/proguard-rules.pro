@@ -1,17 +1,23 @@
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in C:\Users\hp\AppData\Local\Android\Sdk/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
-
-# For more details, see
-#   http://developer.android.com/guide/developing/tools-proguard.html
-
-# Add any project specific keep rules here:
-
 # Keep any classes that are used in layout XML files
 -keep class * extends android.view.View {
     public <init>(android.content.Context);
     public <init>(android.content.Context, android.util.AttributeSet);
     public <init>(android.content.Context, android.util.AttributeSet, int);
+}
+
+# ONNX Runtime
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
+
+# sherpa-onnx JNI bindings
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-dontwarn com.k2fsa.sherpa.onnx.**
+
+# Apache Commons Compress
+-keep class org.apache.commons.compress.** { *; }
+-dontwarn org.apache.commons.compress.**
+
+# Keep native method declarations
+-keepclasseswithmembernames class * {
+    native <methods>;
 }

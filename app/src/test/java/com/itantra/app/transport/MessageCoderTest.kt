@@ -2,6 +2,7 @@ package com.itantra.app.transport
 
 import com.itantra.app.core.model.Language
 import com.itantra.app.core.model.Message
+import com.itantra.app.core.model.Sender
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,9 +16,8 @@ class MessageCoderTest {
     fun `test message round trip with Hindi text`() {
         val originalMessage = Message(
             id = "123",
-            sender = "UserA",
-            language = Language.HINDI,
             text = "मुझे मदद चाहिए",
+            sender = Sender.SENDER,
             timestamp = 1693245600000L
         )
 

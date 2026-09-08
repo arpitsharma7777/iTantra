@@ -15,5 +15,11 @@ data class AppUiState(
     val discoveredDevices: List<WifiDirectDevice> = emptyList(),
     val sttState: SttState = SttState.IDLE,
     val ttsState: TtsState = TtsState.INITIALIZING,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isRecording: Boolean = false,
+    val partialText: String = "",
+    val recognizedText: String = "",
+    val downloadedLanguages: Set<Language> = emptySet(),
+    val downloadedCount: Int = 0,
+    val totalLanguages: Int = 9,
 )

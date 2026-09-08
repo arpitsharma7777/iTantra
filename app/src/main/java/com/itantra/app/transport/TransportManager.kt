@@ -65,11 +65,15 @@ class TransportManager(context: Context) {
         }
 
         scope.launch {
+            var wasEverConnected = false
             combine(socketManager.isConnected, isConnecting) { connected, connecting ->
                 connected to connecting
             }.collect { (connected, connecting) ->
-                if (!connected && !connecting && wifiDirectManager.connectionState.value is ConnectionState.Connected) {
-                    Log.d(TAG, "Socket connection lost unexpectedly, resetting WiFi stack")
+                if (connected) {
+                    wasEverConnected = true
+                }
+                if (wasEverConnected && !connected && !connecting && wifiDirectManager.connectionState.value is ConnectionState.Connected) {
+                    Log.d(TAG, "Socket connection lost unexpectedly after being connected, resetting WiFi stack")
                     wifiDirectManager.disconnect()
                 }
             }
@@ -97,11 +101,18 @@ class TransportManager(context: Context) {
             val info = wifiDirectManager.connectionInfo.value
                 ?: return Result.failure(Exception("Failed to get connection info"))
 
+            Log.d(TAG, "P2P connected. isGroupOwner=${info.isGroupOwner}, groupOwnerAddress=${info.groupOwnerAddress}")
+
+            // Give the network interface time to stabilize after P2P connection
+            kotlinx.coroutines.delay(500)
+
             if (info.isGroupOwner) {
+                Log.d(TAG, "Starting TCP server on port 8888")
                 socketManager.startServer()
             } else {
                 val host = info.groupOwnerAddress
                     ?: return Result.failure(Exception("Client role: Group Owner address missing"))
+                Log.d(TAG, "Starting TCP client connecting to $host:8888")
                 socketManager.startClient(host)
             }
 

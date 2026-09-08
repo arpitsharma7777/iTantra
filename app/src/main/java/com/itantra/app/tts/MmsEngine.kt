@@ -4,17 +4,14 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.nio.LongBuffer
 
 class MmsEngine(
     private val context: Context,
-    private val modelAssetPath: String,
-    private val vocabAssetPath: String,
-    private val modelFileName: String,
-    private val vocabFileName: String,
+    private val ttsId: String,
     private val maxValidTokenId: Long
 ) : TtsEngine {
 
@@ -24,22 +21,47 @@ class MmsEngine(
     private var unkId: Long = 0L
 
     override fun initialize() {
-        val modelPath = copyAssetFile(modelAssetPath, modelFileName)
-        val vocabPath = copyAssetFile(vocabAssetPath, vocabFileName)
+        val ttsDir = File(context.filesDir, "tts")
+        val modelDir = File(ttsDir, ttsId)
+        val modelFile = File(modelDir, "model.onnx")
+
+        if (!modelFile.exists()) throw IllegalStateException("MMS model not found: ${modelFile.absolutePath}")
 
         env = OrtEnvironment.getEnvironment()
-        session = env.createSession(modelPath, OrtSession.SessionOptions())
+        session = env.createSession(modelFile.absolutePath, OrtSession.SessionOptions())
 
-        val vocabJson = JSONObject(File(vocabPath).readText())
+        val vocabFile = File(modelDir, "vocab.json")
+        val tokensFile = File(modelDir, "tokens.txt")
         val vocabMap = mutableMapOf<Char, Long>()
-        vocabJson.keys().forEach { key ->
-            if (key.length == 1) {
-                vocabMap[key[0]] = vocabJson.getLong(key)
-            } else if (key == "<unk>") {
-                unkId = vocabJson.getLong(key)
+
+        if (vocabFile.exists()) {
+            val vocabJson = JSONObject(vocabFile.readText())
+            vocabJson.keys().forEach { key ->
+                if (key.length == 1) {
+                    vocabMap[key[0]] = vocabJson.getLong(key)
+                } else if (key == "<unk>") {
+                    unkId = vocabJson.getLong(key)
+                }
             }
+        } else if (tokensFile.exists()) {
+            tokensFile.readLines().forEach { line ->
+                val parts = line.trim().split(" ", limit = 2)
+                if (parts.size == 2) {
+                    val token = parts[0]
+                    val id = parts[1].toLongOrNull() ?: return@forEach
+                    if (token.length == 1) {
+                        vocabMap[token[0]] = id
+                    } else if (token == "<unk>" || token == "<blank>") {
+                        unkId = id
+                    }
+                }
+            }
+        } else {
+            throw IllegalStateException("MMS vocab not found in ${modelDir.absolutePath}")
         }
+
         vocab = vocabMap
+        Log.d(TAG, "MmsEngine($ttsId) initialized from ${modelDir.absolutePath}")
     }
 
     override fun synthesize(text: String, langCode: String): ShortArray {
@@ -66,25 +88,17 @@ class MmsEngine(
 
     private fun tokenize(text: String): LongArray {
         val ids = mutableListOf<Long>()
-        ids.add(0L) // leading blank
+        ids.add(0L)
         for (char in text.lowercase()) {
             val id = vocab[char] ?: continue
-            if (id > maxValidTokenId) continue // skip out-of-bounds tokens
+            if (id > maxValidTokenId) continue
             ids.add(id)
-            ids.add(0L) // blank after every token
+            ids.add(0L)
         }
         return ids.toLongArray()
     }
 
-    private fun copyAssetFile(assetPath: String, destName: String): String {
-        val outFile = File(context.filesDir, destName)
-        if (!outFile.exists()) {
-            context.assets.open(assetPath).use { input ->
-                FileOutputStream(outFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-        return outFile.absolutePath
+    companion object {
+        private const val TAG = "MmsEngine"
     }
 }

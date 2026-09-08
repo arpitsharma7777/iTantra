@@ -1,1 +1,2 @@
 *.onnx filter=lfs diff=lfs merge=lfs -text
+sherpa_stt/tiny-tokens.txt filter=lfs diff=lfs merge=lfs -text

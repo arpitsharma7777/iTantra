@@ -1,13 +1,11 @@
 package com.itantra.app.ui.state
 
-import app.cash.turbine.test
 import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Language
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -33,93 +31,27 @@ class AppViewModelTest {
     }
 
     @Test
-    fun `initial state matches defaults`() = runTest {
-        viewModel.uiState.test {
-            val state = awaitItem()
-            // Note: The AppViewModel currently initializes with two mock messages in its constructor
-            // So we check only the requested fields
-            assertEquals(ConnectionState.DISCONNECTED, state.connectionState)
-            assertEquals(Language.ENGLISH, state.selectedLanguage)
-            assertNull(state.connectedDeviceName)
-            cancelAndIgnoreRemainingEvents()
-        }
+    fun `initial state matches defaults`() {
+        val state = viewModel.uiState.value
+        assertEquals(ConnectionState.Disconnected, state.connectionState)
+        assertEquals(Language.ENGLISH, state.selectedLanguage)
+        assertNull(state.connectedDeviceName)
     }
 
     @Test
-    fun `updateConnectionState correctly updates state`() = runTest {
-        viewModel.uiState.test {
-            // Skip initial state
-            awaitItem()
+    fun `setLanguage correctly updates language`() {
+        val newLanguage = Language.HINDI
+        viewModel.setLanguage(newLanguage)
 
-            val newState = ConnectionState.DISCOVERING
-            viewModel.updateConnectionState(newState)
-            
-            val state = awaitItem()
-            assertEquals(newState, state.connectionState)
-            cancelAndIgnoreRemainingEvents()
-        }
+        val state = viewModel.uiState.value
+        assertEquals(newLanguage, state.selectedLanguage)
     }
 
     @Test
-    fun `updateSelectedLanguage correctly updates language`() = runTest {
-        viewModel.uiState.test {
-            awaitItem()
+    fun `clearMessages removes all messages`() {
+        viewModel.clearMessages()
 
-            val newLanguage = Language.HINDI
-            viewModel.updateSelectedLanguage(newLanguage)
-            
-            val state = awaitItem()
-            assertEquals(newLanguage, state.selectedLanguage)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `updateConnectedDevice correctly updates device name`() = runTest {
-        viewModel.uiState.test {
-            awaitItem()
-
-            val deviceName = "Test Device"
-            viewModel.updateConnectedDevice(deviceName)
-            
-            assertEquals(deviceName, awaitItem().connectedDeviceName)
-
-            viewModel.updateConnectedDevice(null)
-            assertNull(awaitItem().connectedDeviceName)
-            
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    @Test
-    fun `multiple sequential updates don't clobber unrelated fields`() = runTest {
-        viewModel.uiState.test {
-            awaitItem()
-
-            // Update 1: Connection State
-            viewModel.updateConnectionState(ConnectionState.DISCOVERING)
-            assertEquals(ConnectionState.DISCOVERING, awaitItem().connectionState)
-
-            // Update 2: Language (Connection state should remain Discovering)
-            viewModel.updateSelectedLanguage(Language.HINDI)
-            val stateAfterLanguage = awaitItem()
-            assertEquals(Language.HINDI, stateAfterLanguage.selectedLanguage)
-            assertEquals(ConnectionState.DISCOVERING, stateAfterLanguage.connectionState)
-
-            // Update 3: Connected Device (Language and Connection State should remain)
-            val deviceName = "iTantra Glasses"
-            viewModel.updateConnectedDevice(deviceName)
-            viewModel.updateConnectionState(ConnectionState.CONNECTED)
-            
-            // Collect both updates
-            awaitItem() // Device name update
-            val finalState = awaitItem() // Connection state update
-            
-            assertEquals(deviceName, finalState.connectedDeviceName)
-            assertEquals(Language.HINDI, finalState.selectedLanguage)
-            assertEquals(ConnectionState.CONNECTED, finalState.connectionState)
-            
-            cancelAndIgnoreRemainingEvents()
-        }
+        val state = viewModel.uiState.value
+        assertEquals(emptyList<Nothing>(), state.messages)
     }
 }

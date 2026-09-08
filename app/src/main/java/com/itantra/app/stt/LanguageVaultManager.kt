@@ -184,6 +184,21 @@ class LanguageVaultManager(private val context: Context) {
     private fun copyTtsFromAssets() {
         val piperDir = File(ttsDir, "piper-en")
         piperDir.mkdirs()
+
+        val piperTokensFile = File(piperDir, "tokens.txt")
+        if (!piperTokensFile.exists()) {
+            try {
+                context.assets.open("tts/piper-en/tokens.txt").use { input ->
+                    FileOutputStream(piperTokensFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.d(TAG, "Copied Piper EN tokens from assets")
+            } catch (e: Exception) {
+                Log.w(TAG, "No bundled Piper EN tokens in assets")
+            }
+        }
+
         val piperModelFile = File(piperDir, "model.onnx")
         if (!piperModelFile.exists()) {
             try {
@@ -200,6 +215,21 @@ class LanguageVaultManager(private val context: Context) {
 
         val vitsDir = File(ttsDir, "vits-rasa")
         vitsDir.mkdirs()
+
+        val vitsVocabFile = File(vitsDir, "vocab.json")
+        if (!vitsVocabFile.exists()) {
+            try {
+                context.assets.open("tts/vits-rasa/vocab.json").use { input ->
+                    FileOutputStream(vitsVocabFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.d(TAG, "Copied VITS Rasa vocab from assets")
+            } catch (e: Exception) {
+                Log.w(TAG, "No bundled VITS Rasa vocab in assets")
+            }
+        }
+
         val vitsModelFile = File(vitsDir, "model.onnx")
         if (!vitsModelFile.exists()) {
             try {

@@ -4,9 +4,9 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.nio.LongBuffer
 
 class VitsRasaEngine(private val context: Context) : TtsEngine {
@@ -15,24 +15,28 @@ class VitsRasaEngine(private val context: Context) : TtsEngine {
     private lateinit var env: OrtEnvironment
     private lateinit var vocab: Map<Char, Long>
 
-    // Language -> speaker_id mapping (female defaults; male where available)
     private val speakerIds = mapOf(
-        "bn" to 2L,  // Bengali (female)
-        "kn" to 8L,  // Kannada (female)
-        "ml" to 11L, // Malayalam (female, no male available)
-        "mr" to 12L, // Marathi (female)
-        "ta" to 18L, // Tamil (female, no male available)
-        "te" to 19L  // Telugu (female, no male available)
+        "bn" to 2L,
+        "kn" to 8L,
+        "ml" to 11L,
+        "mr" to 12L,
+        "ta" to 18L,
+        "te" to 19L
     )
 
     override fun initialize() {
-        val modelPath = copyAssetFile("tts/vits-rasa/vits_rasa_13.onnx", "vits_rasa_13.onnx")
-        val vocabPath = copyAssetFile("tts/vits-rasa/vocab.json", "vits_rasa_vocab.json")
+        val ttsDir = File(context.filesDir, "tts")
+        val modelDir = File(ttsDir, "vits-rasa")
+        val modelFile = File(modelDir, "model.onnx")
+        val vocabFile = File(modelDir, "vocab.json")
+
+        if (!modelFile.exists()) throw IllegalStateException("VITS Rasa model not found: ${modelFile.absolutePath}")
+        if (!vocabFile.exists()) throw IllegalStateException("VITS Rasa vocab not found: ${vocabFile.absolutePath}")
 
         env = OrtEnvironment.getEnvironment()
-        session = env.createSession(modelPath, OrtSession.SessionOptions())
+        session = env.createSession(modelFile.absolutePath, OrtSession.SessionOptions())
 
-        val vocabJson = JSONObject(File(vocabPath).readText())
+        val vocabJson = JSONObject(vocabFile.readText())
         val vocabMap = mutableMapOf<Char, Long>()
         vocabJson.keys().forEach { key ->
             if (key.length == 1) {
@@ -40,10 +44,11 @@ class VitsRasaEngine(private val context: Context) : TtsEngine {
             }
         }
         vocab = vocabMap
+        Log.d(TAG, "VitsRasaEngine initialized from ${modelDir.absolutePath}")
     }
 
     override fun synthesize(text: String, langCode: String): ShortArray {
-        val speakerId = speakerIds[langCode] ?: 2L // default to Bengali if unknown
+        val speakerId = speakerIds[langCode] ?: 2L
         val inputIds = tokenize(text)
 
         val inputTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds), longArrayOf(1, inputIds.size.toLong()))
@@ -77,24 +82,16 @@ class VitsRasaEngine(private val context: Context) : TtsEngine {
 
     private fun tokenize(text: String): LongArray {
         val ids = mutableListOf<Long>()
-        ids.add(0L) // leading blank
+        ids.add(0L)
         for (char in text.lowercase()) {
-            val id = vocab[char] ?: continue // skip unknown characters
+            val id = vocab[char] ?: continue
             ids.add(id)
-            ids.add(0L) // blank after every token
+            ids.add(0L)
         }
         return ids.toLongArray()
     }
 
-    private fun copyAssetFile(assetPath: String, destName: String): String {
-        val outFile = File(context.filesDir, destName)
-        if (!outFile.exists()) {
-            context.assets.open(assetPath).use { input ->
-                FileOutputStream(outFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-        return outFile.absolutePath
+    companion object {
+        private const val TAG = "VitsRasaEngine"
     }
 }

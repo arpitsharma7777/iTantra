@@ -23,12 +23,17 @@ import androidx.navigation.compose.rememberNavController
 import com.itantra.app.core.model.ConnectionState
 import com.itantra.app.core.model.Message
 import com.itantra.app.core.model.Sender
+import com.itantra.app.core.model.Language
+import com.itantra.app.evaluation.BenchmarkRunner
+import com.itantra.app.evaluation.ui.BenchmarkScreen
+import com.itantra.app.evaluation.ui.HumanTtsEvaluationScreen
 import com.itantra.app.ui.communication.CommunicationScreen
 import com.itantra.app.ui.connection.ConnectionScreen
 import com.itantra.app.ui.developer.DeveloperScreen
 import com.itantra.app.ui.home.HomeScreen
 import com.itantra.app.ui.settings.SettingsScreen
 import com.itantra.app.ui.state.AppViewModel
+import com.itantra.app.ui.vault.LanguageVaultScreen
 
 @Composable
 fun AppNavigation(
@@ -90,7 +95,8 @@ fun AppNavigation(
                     when (tab) {
                         "Settings" -> navController.navigate(Screen.Settings.route)
                     }
-                }
+                },
+                onNavigateToVault = { navController.navigate(Screen.LanguageVault.route) }
             )
         }
         composable(Screen.Connection.route) {
@@ -121,17 +127,20 @@ fun AppNavigation(
                 messages = uiState.messages,
                 selectedLanguage = uiState.selectedLanguage,
                 connectedDeviceName = uiState.connectedDeviceName,
+                isRecording = uiState.isRecording,
+                partialText = uiState.partialText,
+                recognizedText = uiState.recognizedText,
                 onBackClick = { navController.popBackStack() },
                 onMicClick = {
                     if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                         PackageManager.PERMISSION_GRANTED
                     ) {
-                        actualViewModel.startSpeaking()
+                        actualViewModel.toggleRecording()
                     } else {
                         audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
-                onSendClick = { actualViewModel.sendCurrentMessage() },
+                onLanguageSelected = { language -> actualViewModel.setLanguage(language) },
                 onClearClick = { actualViewModel.clearMessages() }
             )
         }
@@ -139,11 +148,53 @@ fun AppNavigation(
             SettingsScreen(
                 viewModel = actualViewModel,
                 onBack = { navController.popBackStack() },
-                onNavigateToDeveloper = { navController.navigate(Screen.Developer.route) }
+                onNavigateToDeveloper = { navController.navigate(Screen.Developer.route) },
+                onNavigateToBenchmark = { navController.navigate(Screen.Benchmark.route) },
+                onNavigateToVault = { navController.navigate(Screen.LanguageVault.route) }
             )
+        }
+        composable(Screen.LanguageVault.route) {
+            val vaultManager = actualViewModel.vaultManager
+            if (vaultManager != null) {
+                LanguageVaultScreen(
+                    vaultManager = vaultManager,
+                    onBack = {
+                        actualViewModel.refreshDownloadedLanguages()
+                        navController.popBackStack()
+                    }
+                )
+            }
         }
         composable(Screen.Developer.route) {
             DeveloperScreen()
+        }
+        composable(Screen.Benchmark.route) {
+            val benchmarkRunner = remember {
+                val appCtx = context.applicationContext
+                val vadManager = com.itantra.app.stt.VadManager(appCtx)
+                val vaultMgr = com.itantra.app.stt.LanguageVaultManager(appCtx)
+                vaultMgr.initializeFromAssets()
+                val sttMgr = com.itantra.app.stt.SttManager(appCtx, vadManager, vaultMgr)
+                val ttsMgr = com.itantra.app.tts.TtsManager(appCtx)
+                ttsMgr.initialize()
+                BenchmarkRunner(appCtx, sttMgr, ttsMgr, null)
+            }
+            BenchmarkScreen(
+                benchmarkRunner = benchmarkRunner,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.TtsEvaluation.route) { backStackEntry ->
+            val langCode = backStackEntry.arguments?.getString("languageCode") ?: "en"
+            val language = Language.entries.find { it.code == langCode } ?: Language.ENGLISH
+            HumanTtsEvaluationScreen(
+                language = language,
+                onScoresSubmitted = { scores ->
+                    // Scores are saved via the evaluation system
+                    navController.popBackStack()
+                },
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

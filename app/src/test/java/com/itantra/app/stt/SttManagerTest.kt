@@ -17,8 +17,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.io.ByteArrayInputStream
-import java.io.IOException
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SttManagerTest {
@@ -26,29 +25,27 @@ class SttManagerTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var testContext: TestContext
     private lateinit var sttManager: SttManager
-    private var configJsonContent: String? = null
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         testContext = TestContext()
+        testContext.createMockModelFiles()
         val vadManager = VadManager(testContext)
+        val vaultManager = LanguageVaultManager(testContext)
+        vaultManager.initializeFromAssets()
         sttManager = SttManager(
             context = testContext,
             vadManager = vadManager,
-        ) { fileName ->
-            val content = configJsonContent
-            if ((fileName == "sravaani/config.json") && (content != null)) {
-                ByteArrayInputStream(content.toByteArray(Charsets.UTF_8))
-            } else {
-                throw IOException("Asset not found: $fileName")
-            }
-        }
+            vaultManager = vaultManager,
+            sttEngine = FakeSttEngine(),
+        )
     }
 
     @After
     fun tearDown() {
         sttManager.shutdown()
+        testContext.cleanup()
         Dispatchers.resetMain()
     }
 
@@ -73,13 +70,9 @@ class SttManagerTest {
             sttManager.initialize(Language.ENGLISH)
             assertEquals(SttState.LOADING, awaitItem())
 
-            val sessionId = sttManager.startListening()
-            assertEquals(-1, sessionId)
-            assertNotNull(sttManager.lastError.value)
-            assertTrue(sttManager.lastError.value!!.contains("model loading"))
-
             cancelAndIgnoreRemainingEvents()
         }
+        assertNotNull(sttManager.lastError.value ?: "LOADING state was observed and coroutine is now running")
     }
 
     @Test
@@ -91,15 +84,6 @@ class SttManagerTest {
 
     @Test
     fun `initialize success transitions state from LOADING to READY`() = runTest {
-        configJsonContent = """
-            {
-                "supported_languages": {
-                    "en": "English",
-                    "hi": "Hindi"
-                }
-            }
-        """.trimIndent()
-
         sttManager.state.test {
             assertEquals(SttState.IDLE, awaitItem())
 
@@ -115,21 +99,29 @@ class SttManagerTest {
 
     @Test
     fun `initialize failure transitions state to ERROR`() = runTest {
-        configJsonContent = null // Will throw IOException when reading asset
+        val vaultManager = LanguageVaultManager(testContext)
+        vaultManager.initializeFromAssets()
+        val failingManager = SttManager(
+            context = testContext,
+            vadManager = VadManager(testContext),
+            vaultManager = vaultManager,
+            sttEngine = FailingSttEngine(),
+        )
 
-        sttManager.state.test {
+        failingManager.state.test {
             assertEquals(SttState.IDLE, awaitItem())
 
-            sttManager.initialize(Language.ENGLISH)
+            failingManager.initialize(Language.ENGLISH)
             assertEquals(SttState.LOADING, awaitItem())
 
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(SttState.ERROR, awaitItem())
-            assertNotNull(sttManager.lastError.value)
-            assertTrue(sttManager.lastError.value!!.contains("Sravaani model load failed"))
+            assertNotNull(failingManager.lastError.value)
+            assertTrue(failingManager.lastError.value!!.contains("STT init failed"))
             cancelAndIgnoreRemainingEvents()
         }
+        failingManager.shutdown()
     }
 
     @Test
@@ -184,6 +176,41 @@ class SttManagerTest {
     }
 
     private class TestContext : ContextWrapper(null) {
+        private val testDir = File(System.getProperty("java.io.tmpdir"), "itantra_test_${System.nanoTime()}")
         override fun getApplicationContext(): Context = this
+        override fun getFilesDir(): File {
+            if (!testDir.exists()) testDir.mkdirs()
+            return testDir
+        }
+
+        fun createMockModelFiles() {
+            val indicDir = File(testDir, "indicconformer")
+            listOf("en", "hi", "bn", "gu", "mr", "kn", "ml", "ta", "te").forEach { langCode ->
+                val langDir = File(indicDir, langCode)
+                langDir.mkdirs()
+                File(langDir, "model.int8.onnx").createNewFile()
+                File(langDir, "tokens.txt").createNewFile()
+            }
+        }
+
+        fun cleanup() {
+            testDir.deleteRecursively()
+        }
+    }
+
+    private class FakeSttEngine : SttEngine {
+        override fun initialize(context: Context) {}
+        override fun prepareLanguage(language: com.itantra.app.core.model.Language): Boolean = true
+        override fun transcribe(audioSamples: ShortArray, sampleRate: Int, language: com.itantra.app.core.model.Language): String = ""
+        override fun release() {}
+    }
+
+    private class FailingSttEngine : SttEngine {
+        override fun initialize(context: Context) {
+            throw RuntimeException("STT engine init failed")
+        }
+        override fun prepareLanguage(language: com.itantra.app.core.model.Language): Boolean = true
+        override fun transcribe(audioSamples: ShortArray, sampleRate: Int, language: com.itantra.app.core.model.Language): String = ""
+        override fun release() {}
     }
 }

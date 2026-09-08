@@ -14,6 +14,7 @@ import com.itantra.app.core.model.ConnectionState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -108,8 +109,10 @@ class WiFiDirectManager(context: Context) {
                 _connectionState.value = newState
 
                 if (newState is ConnectionState.Error) {
-                    delay(1000)
-                    _connectionState.value = ConnectionState.Disconnected
+                    delay(3000)
+                    if (_connectionState.value == newState) {
+                        _connectionState.value = ConnectionState.Disconnected
+                    }
                 }
             }
         }
@@ -156,12 +159,18 @@ class WiFiDirectManager(context: Context) {
         }
     }
 
+    private var discoveryTimeoutJob: kotlinx.coroutines.Job? = null
+
     fun startDiscovery() {
         if (!isSupported) {
             updateState(ConnectionState.Error("Wi-Fi Direct unsupported"), "Cannot start discovery")
             return
         }
+
+        discoveryTimeoutJob?.cancel()
+        _discoveredDevices.value = emptyList()
         updateState(ConnectionState.Discovering, "Manual discovery start")
+
         try {
             manager?.discoverPeers(channel, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
@@ -174,6 +183,20 @@ class WiFiDirectManager(context: Context) {
             })
         } catch (e: SecurityException) {
             updateState(ConnectionState.Error("Permission missing"), "Permission missing for discovery: ${e.message}")
+            return
+        }
+
+        discoveryTimeoutJob = scope.launch {
+            delay(DISCOVERY_TIMEOUT_MS)
+            val current = _connectionState.value
+            if (current is ConnectionState.Discovering) {
+                val devices = _discoveredDevices.value
+                if (devices.isEmpty()) {
+                    updateState(ConnectionState.Error("No devices found"), "Discovery timeout with 0 peers")
+                } else {
+                    Log.d(TAG, "Discovery timeout but ${devices.size} devices found, keeping Discovering state")
+                }
+            }
         }
     }
 
@@ -246,6 +269,8 @@ class WiFiDirectManager(context: Context) {
 
     fun disconnect() {
         Log.d(TAG, "WiFiDirectManager: performing partial disconnect")
+        discoveryTimeoutJob?.cancel()
+        discoveryTimeoutJob = null
         manager?.stopPeerDiscovery(channel, null)
         manager?.removeGroup(channel, null)
 
@@ -258,6 +283,7 @@ class WiFiDirectManager(context: Context) {
     }
 
     fun teardown() {
+        discoveryTimeoutJob?.cancel()
         disconnect()
         try {
             appContext.unregisterReceiver(receiver)
@@ -269,5 +295,6 @@ class WiFiDirectManager(context: Context) {
 
     companion object {
         private const val TAG = "WiFiDirectManager"
+        private const val DISCOVERY_TIMEOUT_MS = 30_000L
     }
 }
