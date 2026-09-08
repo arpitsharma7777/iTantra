@@ -62,7 +62,7 @@ class TtsManager(
                 activePiperEngine?.release()
                 val modelDir = vaultManager?.getTtsModelDir("piper-en")
                     ?: throw IllegalStateException("Piper English TTS model not downloaded. Please download it in Language Vault.")
-                val engine = PiperEngine(context, modelDir, speakerId = 630)
+                val engine = PiperEngine(context, modelDir, speakerId = 0)
                 engine.initialize()
                 activePiperEngine = engine
                 activePiperLanguage = language
@@ -109,7 +109,14 @@ class TtsManager(
                     Pair(engine.synthesize(text, "en"), 22050)
                 }
                 else -> {
-                    ensureNonPiperEngineInitialized(vitsRasaEngine, language)
+                    try {
+                        ensureNonPiperEngineInitialized(vitsRasaEngine, language)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "VitsRasa TTS unavailable for $language: ${e.message}, TTS skipped")
+                        _lastError.value = "TTS not available for ${language.displayName}: ${e.message}"
+                        _state.value = TtsState.ERROR
+                        return@withContext
+                    }
                     _state.value = TtsState.SPEAKING
                     val langCode = when (language) {
                         Language.HINDI -> "hi"

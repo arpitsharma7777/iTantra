@@ -74,6 +74,10 @@ class VadManager(private val context: Context) {
             Log.d(TAG, "VadManager initialized successfully. Detected model version: ${if (isV5) "v5" else "v4"}")
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialize VadManager: ${e.message}", e)
+            if (e is UnsatisfiedLinkError || e.message?.contains("OrtGetApiBase") == true) {
+                com.itantra.app.tts.OnnxRuntimeCompat.markUnavailable()
+                Log.e(TAG, "ONNX Runtime native library unavailable - marking as disabled")
+            }
             throw e
         }
     }

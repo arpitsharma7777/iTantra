@@ -15,6 +15,10 @@ class PiperEngine(
     private val speakerId: Int = 0
 ) : TtsEngine {
 
+    companion object {
+        private const val TAG = "PiperEngine"
+    }
+
     private lateinit var tts: OfflineTts
 
     override fun initialize() {
@@ -32,7 +36,10 @@ class PiperEngine(
         val vitsConfig = OfflineTtsVitsModelConfig(
             model = modelFile.absolutePath,
             tokens = tokensFile.absolutePath,
-            dataDir = dataDir.absolutePath
+            dataDir = dataDir.absolutePath,
+            noiseScale = 0.667f,
+            noiseScaleW = 0.8f,
+            lengthScale = 1.0f
         )
         val modelConfig = OfflineTtsModelConfig(vits = vitsConfig, numThreads = 2, debug = false, provider = "cpu")
         val config = OfflineTtsConfig(model = modelConfig)
@@ -58,25 +65,29 @@ class PiperEngine(
     private fun copyEspeakNgData(destDir: File) {
         destDir.mkdirs()
         try {
-            val files = context.assets.list("tts/piper-en/espeak-ng-data") ?: emptyArray()
-            for (fileName in files) {
-                val subAssetPath = "tts/piper-en/espeak-ng-data/$fileName"
-                val subFiles = context.assets.list(subAssetPath)
-                if (subFiles.isNullOrEmpty()) {
-                    context.assets.open(subAssetPath).use { input ->
-                        java.io.FileOutputStream(File(destDir, fileName)).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-            }
+            copyAssetDir("tts/piper-en/espeak-ng-data", destDir)
             Log.d(TAG, "Copied espeak-ng-data")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to copy espeak-ng-data", e)
         }
     }
 
-    companion object {
-        private const val TAG = "PiperEngine"
+    private fun copyAssetDir(assetPath: String, destDir: File) {
+        destDir.mkdirs()
+        val entries = context.assets.list(assetPath) ?: return
+        for (name in entries) {
+            val childAsset = "$assetPath/$name"
+            val childFile = File(destDir, name)
+            val subEntries = context.assets.list(childAsset)
+            if (subEntries.isNullOrEmpty()) {
+                context.assets.open(childAsset).use { input ->
+                    java.io.FileOutputStream(childFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } else {
+                copyAssetDir(childAsset, childFile)
+            }
+        }
     }
 }

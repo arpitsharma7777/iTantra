@@ -21,6 +21,10 @@ class MmsEngine(
     private var unkId: Long = 0L
 
     override fun initialize() {
+        if (!OnnxRuntimeCompat.isAvailable) {
+            throw IllegalStateException("ONNX Runtime native library is unavailable on this device (OrtGetApiBase symbol missing). MMS TTS is not supported.")
+        }
+
         val ttsDir = File(context.filesDir, "tts")
         val modelDir = File(ttsDir, ttsId)
         val modelFile = File(modelDir, "model.onnx")

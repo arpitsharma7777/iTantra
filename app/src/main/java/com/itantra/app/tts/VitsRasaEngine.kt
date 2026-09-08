@@ -25,6 +25,10 @@ class VitsRasaEngine(private val context: Context) : TtsEngine {
     )
 
     override fun initialize() {
+        if (!OnnxRuntimeCompat.isAvailable) {
+            throw IllegalStateException("ONNX Runtime native library is unavailable on this device (OrtGetApiBase symbol missing). Hindi TTS is not supported.")
+        }
+
         val ttsDir = File(context.filesDir, "tts")
         val modelDir = File(ttsDir, "vits-rasa")
         val modelFile = File(modelDir, "model.onnx")
