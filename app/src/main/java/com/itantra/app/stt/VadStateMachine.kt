@@ -31,7 +31,7 @@ data class VadConfig(
 )
 
 /**
- * Evaluates raw probabilities from VadManager to determine speech boundaries with hysteresis.
+ * Evaluates raw probabilities from VadEngine to determine speech boundaries with hysteresis.
  * It also manages a pre-roll audio buffer to prevent chopping the start of words.
  */
 class VadStateMachine(

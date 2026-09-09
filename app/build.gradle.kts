@@ -52,7 +52,7 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
-            pickFirsts += listOf("**/libonnxruntime.so", "**/libonnxruntime4j_jni.so")
+            pickFirsts += listOf("**/libonnxruntime4j_jni.so", "**/libonnxruntime.so")
         }
     }
 }
@@ -71,10 +71,10 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
-    implementation(files("libs/sherpa-onnx-1.13.7.aar"))
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.21.0") {
         exclude(group = "net.java.dev.jna")
     }
+    implementation(files("libs/sherpa-onnx-1.13.7.aar"))
     implementation("org.apache.commons:commons-compress:1.26.1")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")

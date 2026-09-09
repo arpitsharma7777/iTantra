@@ -10,6 +10,8 @@ import com.itantra.app.core.model.Language
 import com.itantra.app.stt.LanguageVaultManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +44,7 @@ class TtsManager(
     private val nonPiperMutexes = ConcurrentHashMap<TtsEngine, Mutex>()
     private val initializedNonPiperEngines = ConcurrentHashMap<TtsEngine, Boolean>()
     private var vitsRasaInitialized = false
+    private val playbackScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     private val _state = MutableStateFlow(TtsState.INITIALIZING)
     val state: StateFlow<TtsState> = _state.asStateFlow()
@@ -162,20 +165,34 @@ class TtsManager(
                 .setSampleRate(sampleRate)
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build(),
-            maxOf(minBufferSize, samples.size * 2),
-            AudioTrack.MODE_STATIC,
+            maxOf(minBufferSize, STREAM_BUFFER_SIZE),
+            AudioTrack.MODE_STREAM,
             AudioManager.AUDIO_SESSION_ID_GENERATE
         )
 
-        audioTrack.write(samples, 0, samples.size)
         audioTrack.play()
 
         val durationMs = (samples.size.toFloat() / sampleRate * 1000).toLong()
-        Thread {
-            Thread.sleep(durationMs + 200)
-            audioTrack.stop()
-            audioTrack.release()
-        }.start()
+        playbackScope.launch {
+            try {
+                var offset = 0
+                while (offset < samples.size) {
+                    val writeLen = minOf(STREAM_CHUNK_SIZE, samples.size - offset)
+                    val written = audioTrack.write(samples, offset, writeLen)
+                    if (written > 0) {
+                        offset += written
+                    } else {
+                        break
+                    }
+                }
+                delay(durationMs + 200)
+            } finally {
+                try {
+                    audioTrack.stop()
+                    audioTrack.release()
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     fun stop() {
@@ -216,5 +233,7 @@ class TtsManager(
 
     companion object {
         private const val TAG = "TtsManager"
+        private const val STREAM_BUFFER_SIZE = 16384
+        private const val STREAM_CHUNK_SIZE = 4096
     }
 }

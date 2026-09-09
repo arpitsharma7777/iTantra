@@ -1,9 +1,11 @@
 package com.itantra.app.tts
 
 import ai.onnxruntime.OnnxTensor
+import com.itantra.app.core.util.OnnxRuntimeCompat
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
@@ -22,11 +24,17 @@ class VitsRasaEngine(private val context: Context) : TtsEngine {
         "mr" to 12L,
         "ta" to 18L,
         "te" to 19L
+        // Gujarati ("gu") not supported by VITS Rasa model — falls back to Bengali speaker
     )
 
     override fun initialize() {
         if (!OnnxRuntimeCompat.isAvailable) {
-            throw IllegalStateException("ONNX Runtime native library is unavailable on this device (OrtGetApiBase symbol missing). Hindi TTS is not supported.")
+            Log.w(TAG, "ONNX Runtime was previously unavailable, attempting re-init...")
+        }
+
+        if (is32BitArm()) {
+            Log.e(TAG, "VITS Rasa TTS is not supported on 32-bit ARM (SIGBUS in libonnxruntime.so)")
+            throw IllegalStateException("Hindi TTS unavailable on this device (32-bit ARM)")
         }
 
         val ttsDir = File(context.filesDir, "tts")
@@ -95,7 +103,16 @@ class VitsRasaEngine(private val context: Context) : TtsEngine {
         return ids.toLongArray()
     }
 
+    private fun is32BitArm(): Boolean {
+        val abis = Build.SUPPORTED_ABIS
+        val primary = abis.firstOrNull() ?: return false
+        return primary == "armeabi-v7a" || primary == "armeabi"
+    }
+
     companion object {
         private const val TAG = "VitsRasaEngine"
+
+        val isSupported: Boolean
+            get() = OnnxRuntimeCompat.isAvailable
     }
 }

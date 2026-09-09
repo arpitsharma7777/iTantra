@@ -163,6 +163,16 @@ fun AppNavigation(
                         navController.popBackStack()
                     }
                 )
+            } else {
+                val fallbackManager = remember {
+                    val mgr = com.itantra.app.stt.LanguageVaultManager(context.applicationContext)
+                    mgr.initializeFromAssets()
+                    mgr
+                }
+                LanguageVaultScreen(
+                    vaultManager = fallbackManager,
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
         composable(Screen.Developer.route) {
@@ -171,7 +181,7 @@ fun AppNavigation(
         composable(Screen.Benchmark.route) {
             val benchmarkRunner = remember {
                 val appCtx = context.applicationContext
-                val vadManager = com.itantra.app.stt.VadManager(appCtx)
+                val vadManager = com.itantra.app.stt.EnergyVadManager()
                 val vaultMgr = com.itantra.app.stt.LanguageVaultManager(appCtx)
                 vaultMgr.initializeFromAssets()
                 val sttMgr = com.itantra.app.stt.SttManager(appCtx, vadManager, vaultMgr)

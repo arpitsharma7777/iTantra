@@ -1,0 +1,37 @@
+﻿--------- beginning of main
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+--------- beginning of system
+E/Perf    (11947): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+E/Perf    (11947): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+E/Perf    (11925): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+E/Perf    (11925): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+E/Perf    (11925): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+W/PushService(23403): [Tid:106688] [Job] shutdown the connection. 9, java.net.SocketException: Connection reset
+W/PushService(23403): 
+W/PushService(23403): 
+W/PushService(23403): java.net.SocketException: Broken pipe
+W/PushService(23403): 	at java.net.SocketOutputStream.socketWrite0(Native Method)
+W/PushService(23403): 	at java.net.SocketOutputStream.socketWrite(SocketOutputStream.java:117)
+W/PushService(23403): 	at java.net.SocketOutputStream.write(SocketOutputStream.java:161)
+W/PushService(23403): 	at java.io.BufferedOutputStream.flushBuffer(BufferedOutputStream.java:82)
+W/PushService(23403): 	at java.io.BufferedOutputStream.flush(BufferedOutputStream.java:140)
+W/PushService(23403): 	at g5.d.b(Unknown Source:203)
+W/PushService(23403): 	at g5.g.a(Unknown Source:29)
+W/PushService(23403): 	at com.xiaomi.push.service.XMPushService.g(Unknown Source:48)
+W/PushService(23403): 	at h5.h.b(Unknown Source:8)
+W/PushService(23403): 	at x4.i1.run(Unknown Source:18)
+W/PushService(23403): 	at x4.k.run(Unknown Source:189)
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+E/QDMA:OptInOutObserver(12031): onRegisterDBObserver : java.lang.SecurityException: Failed to find provider com.qti.smq.Feedback.provider for user 0; expected to find a valid ContentProvider for this authority
+E/QDMA:OperationMode(12031): isQDMAUIInstalled - non exist: android.content.pm.PackageManager$NameNotFoundException: com.qualcomm.qti.smq
+E/Perf    (12031): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+E/Perf    (12031): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+E/Perf    (12031): getFolderSize() : Exception_1 = java.lang.NullPointerException: Attempt to get length of null array
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0
+I/NullBinder(22783): NullBinder for android.net.action.RECOMMEND_NETWORKS triggering remote TransactionTooLargeException due to Service without Chimera impl, calling uid: 1000, calling pid: 0

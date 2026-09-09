@@ -407,7 +407,7 @@ class BenchmarkRunner(
             1. Device info collected via Android APIs (Build, ActivityManager, /proc)
             2. Model sizes measured from actual asset files on device
             3. TTS quality evaluated using production TtsManager.speak()
-            4. STT accuracy: Whisper tiny via Sherpa-ONNX; WER computed against reference text
+            4. STT accuracy: IndicConformer (NeMo CTC) via Sherpa-ONNX; WER computed against reference text
             5. CPU measured via /proc/self/stat sampling (approximate)
             6. RAM measured via Debug.MemoryInfo (PSS/heap breakdown)
             7. Warmup runs ($WARMUP_RUNS) separated from measured runs
@@ -419,7 +419,7 @@ class BenchmarkRunner(
 
     private fun buildLimitations(): List<String> {
         val limitations = mutableListOf<String>()
-        limitations.add("STT uses Whisper tiny model; accuracy may vary for low-resource languages")
+        limitations.add("STT uses IndicConformer (NeMo CTC) model; accuracy may vary for low-resource languages")
         limitations.add("CPU measurement is approximate (process-level via /proc/self/stat)")
         limitations.add("End-to-end latency measured on single device only; clock sync unavailable")
         limitations.add("TTS audio quality analysis limited without raw audio capture")

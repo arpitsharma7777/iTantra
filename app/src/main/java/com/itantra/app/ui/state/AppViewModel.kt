@@ -11,7 +11,7 @@ import com.itantra.app.core.model.Message
 import com.itantra.app.stt.LanguageVaultManager
 import com.itantra.app.stt.SttManager
 import com.itantra.app.stt.SttState
-import com.itantra.app.stt.VadManager
+import com.itantra.app.stt.EnergyVadManager
 import com.itantra.app.transport.TransportManager
 import com.itantra.app.transport.WifiDirectDevice
 import com.itantra.app.tts.TtsManager
@@ -45,7 +45,7 @@ class AppViewModel(
             vaultManager.initializeFromAssets()
 
             transportManager = TransportManager(appContext)
-            val vadManager = VadManager(appContext)
+            val vadManager = EnergyVadManager()
             sttManager = SttManager(appContext, vadManager, vaultManager)
             ttsManager = TtsManager(appContext, vaultManager)
 
@@ -55,7 +55,7 @@ class AppViewModel(
             updateDownloadedLanguages()
 
             val selectedLang = _uiState.value.selectedLanguage
-            val langCode = getLanguageCode(selectedLang)
+            val langCode = selectedLang.indicConformerCode
             val modelAvailable = langCode != null && (
                 vaultManager.isModelDownloaded(langCode) ||
                 vaultManager.isModelPreloaded(langCode)
@@ -109,6 +109,7 @@ class AppViewModel(
                     }
                     if (final.isNotBlank() && !_uiState.value.isRecording) {
                         autoSend(final)
+                        prePrepareNextLanguage()
                     }
                 }
             }
@@ -189,7 +190,7 @@ class AppViewModel(
     }
 
     fun isLanguageDownloaded(language: Language): Boolean {
-        val langCode = getLanguageCode(language) ?: return false
+        val langCode = language.indicConformerCode ?: return false
         return vaultManager?.isModelDownloaded(langCode) ?: false
     }
 
@@ -299,26 +300,19 @@ class AppViewModel(
         updateDownloadedLanguages()
     }
 
+    private fun prePrepareNextLanguage() {
+        val stt = sttManager ?: return
+        val current = _uiState.value.selectedLanguage
+        val downloaded = _uiState.value.downloadedLanguages
+        val next = downloaded.firstOrNull { it != current } ?: return
+        stt.prePrepareLanguage(next)
+    }
+
     override fun onCleared() {
         sttManager?.shutdown()
         ttsManager?.shutdown()
         transportManager?.cleanup()
         super.onCleared()
-    }
-
-    private fun getLanguageCode(language: Language): String? {
-        return when (language) {
-            Language.ENGLISH -> "en"
-            Language.HINDI -> "hi"
-            Language.BENGALI -> "bn"
-            Language.GUJARATI -> "gu"
-            Language.MARATHI -> "mr"
-            Language.KANNADA -> "kn"
-            Language.MALAYALAM -> "ml"
-            Language.TAMIL -> "ta"
-            Language.TELUGU -> "te"
-            else -> null
-        }
     }
 
     class Factory(private val context: Context) : ViewModelProvider.Factory {

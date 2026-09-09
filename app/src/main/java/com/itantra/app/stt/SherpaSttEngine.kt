@@ -28,18 +28,6 @@ class SherpaSttEngine(
         }
     }
 
-    private val languageCodeMap = mapOf(
-        Language.ENGLISH to "en",
-        Language.HINDI to "hi",
-        Language.BENGALI to "bn",
-        Language.GUJARATI to "gu",
-        Language.MARATHI to "mr",
-        Language.KANNADA to "kn",
-        Language.MALAYALAM to "ml",
-        Language.TAMIL to "ta",
-        Language.TELUGU to "te",
-    )
-
     override fun initialize(context: Context) {
         Log.d(TAG, "Initializing SherpaSttEngine with IndicConformer for all languages")
         val downloadedLanguages = vaultManager.getDownloadedLanguageCodes()
@@ -47,7 +35,7 @@ class SherpaSttEngine(
     }
 
     override fun prepareLanguage(language: Language): Boolean {
-        val langCode = languageCodeMap[language] ?: return false
+        val langCode = language.indicConformerCode ?: return false
 
         if (langCode == currentLangCode && currentRecognizer != null) {
             Log.d(TAG, "prepareLanguage: $langCode already ready")
@@ -78,7 +66,7 @@ class SherpaSttEngine(
     override fun transcribe(audioSamples: ShortArray, sampleRate: Int, language: Language): String {
         if (audioSamples.isEmpty()) return ""
 
-        val langCode = languageCodeMap[language] ?: return ""
+        val langCode = language.indicConformerCode ?: return ""
 
         try {
             if (langCode != currentLangCode || currentRecognizer == null) {
@@ -204,6 +192,6 @@ class SherpaSttEngine(
     companion object {
         private const val TAG = "SherpaSttEngine"
         private const val NUM_THREADS = 4
-        private const val MAX_CACHE_SIZE = 2
+        private const val MAX_CACHE_SIZE = 4
     }
 }

@@ -15,8 +15,6 @@ class ModelSizeCollector(private val context: Context) {
     }
 
     fun collect(): ModelSizes {
-        val vadSize = measureAssetSize("vad/silero_vad.onnx")
-
         val piperModelSize = measureAssetSize("tts/piper-en/model.onnx")
         val piperTokensSize = measureAssetSize("tts/piper-en/tokens.txt")
         val piperEspeakSize = measureAssetDirSize("tts/piper-en/espeak-ng-data")
@@ -24,33 +22,16 @@ class ModelSizeCollector(private val context: Context) {
         val vitsRasaModelSize = measureAssetSize("tts/vits-rasa/vits_rasa_13.onnx")
         val vitsRasaVocabSize = measureAssetSize("tts/vits-rasa/vocab.json")
 
-        val mmsHinModelSize = measureAssetSize("tts/mms-hin/mms_tts_hin.onnx")
-        val mmsHinVocabSize = measureAssetSize("tts/mms-hin/vocab_hin.json")
-        val mmsGujModelSize = measureAssetSize("tts/mms-guj/mms_tts_guj.onnx")
-        val mmsGujVocabSize = measureAssetSize("tts/mms-guj/vocab_guj.json")
-        val mmsOryModelSize = measureAssetSize("tts/mms-ory/mms_tts_ory.onnx")
-        val mmsOryVocabSize = measureAssetSize("tts/mms-ory/vocab_ory.json")
-
-        val sravaaniTokensSize = measureAssetSize("sravaani/tokens.txt")
-        val sravaaniConfigSize = measureAssetSize("sravaani/config.json")
-
         val sttModelSize = measureDirSize(context.filesDir.resolve("indicconformer"))
         val sttTotalSize = sttModelSize
 
         val ttsModelSizes = mapOf(
             "piper-en" to (piperModelSize + piperTokensSize + piperEspeakSize) / MB,
             "vits-rasa" to (vitsRasaModelSize + vitsRasaVocabSize) / MB,
-            "mms-hin" to (mmsHinModelSize + mmsHinVocabSize) / MB,
-            "mms-guj" to (mmsGujModelSize + mmsGujVocabSize) / MB,
-            "mms-ory" to (mmsOryModelSize + mmsOryVocabSize) / MB
         )
 
-        val totalMlBytes = vadSize + sttTotalSize + piperModelSize + piperTokensSize + piperEspeakSize +
-                vitsRasaModelSize + vitsRasaVocabSize +
-                mmsHinModelSize + mmsHinVocabSize +
-                mmsGujModelSize + mmsGujVocabSize +
-                mmsOryModelSize + mmsOryVocabSize +
-                sravaaniTokensSize + sravaaniConfigSize
+        val totalMlBytes = sttTotalSize + piperModelSize + piperTokensSize + piperEspeakSize +
+                vitsRasaModelSize + vitsRasaVocabSize
 
         // Count vocab entries for tokenizer size
         val vocabSize = countVocabEntries()
@@ -58,12 +39,12 @@ class ModelSizeCollector(private val context: Context) {
         val result = ModelSizes(
             sttModelSizeMb = sttTotalSize / MB,
             ttsModelSizesMb = ttsModelSizes,
-            vadModelSizeMb = vadSize / MB,
+            vadModelSizeMb = 0f,
             tokenizerVocabSize = vocabSize,
             totalMlAssetSizeMb = totalMlBytes / MB
         )
 
-        Log.d(TAG, "Model sizes: VAD=${result.vadModelSizeMb}MB, TTS models=${ttsModelSizes}, Total=${result.totalMlAssetSizeMb}MB")
+        Log.d(TAG, "Model sizes: TTS models=${ttsModelSizes}, Total=${result.totalMlAssetSizeMb}MB")
         return result
     }
 
@@ -109,9 +90,6 @@ class ModelSizeCollector(private val context: Context) {
         var maxVocab = 0
         val vocabFiles = listOf(
             "tts/vits-rasa/vocab.json",
-            "tts/mms-hin/vocab_hin.json",
-            "tts/mms-guj/vocab_guj.json",
-            "tts/mms-ory/vocab_ory.json"
         )
         for (path in vocabFiles) {
             try {

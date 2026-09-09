@@ -31,7 +31,7 @@ class SttManagerTest {
         Dispatchers.setMain(testDispatcher)
         testContext = TestContext()
         testContext.createMockModelFiles()
-        val vadManager = VadManager(testContext)
+        val vadManager = EnergyVadManager()
         val vaultManager = LanguageVaultManager(testContext)
         vaultManager.initializeFromAssets()
         sttManager = SttManager(
@@ -103,7 +103,7 @@ class SttManagerTest {
         vaultManager.initializeFromAssets()
         val failingManager = SttManager(
             context = testContext,
-            vadManager = VadManager(testContext),
+            vadManager = EnergyVadManager(),
             vaultManager = vaultManager,
             sttEngine = FailingSttEngine(),
         )

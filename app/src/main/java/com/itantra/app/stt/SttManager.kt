@@ -23,6 +23,7 @@ import kotlinx.coroutines.channels.Channel
 enum class SttState {
     IDLE,
     LOADING,
+    PREPARING,
     READY,
     LISTENING,
     ERROR
@@ -37,7 +38,7 @@ data class SttResult(
 
 class SttManager(
     private val context: Context,
-    private val vadManager: VadManager,
+    private val vadManager: VadEngine,
     private val vaultManager: LanguageVaultManager,
     private val sttEngine: SttEngine = SherpaSttEngine(vaultManager),
 ) {
@@ -50,7 +51,6 @@ class SttManager(
     private var activeSessionId: Int = -1
     private var sessionCounter: Int = 0
     private var currentLanguage: Language? = null
-    private var vadAvailable = false
 
     private val _state = MutableStateFlow(SttState.IDLE)
     val state: StateFlow<SttState> = _state.asStateFlow()
@@ -71,19 +71,12 @@ class SttManager(
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    try {
-                        vadManager.initialize()
-                        vadAvailable = true
-                        Log.d(TAG, "VAD initialized successfully")
-                    } catch (e: Throwable) {
-                        vadAvailable = false
-                        Log.e(TAG, "VAD initialization failed, will pass all audio to STT: ${e.message}")
-                    }
-
+                    vadManager.initialize()
+                    Log.d(TAG, "VAD initialized successfully")
                     sttEngine.initialize(context)
                 }
 
-                val langCode = getLanguageCode(language)
+                val langCode = language.indicConformerCode
                 if (langCode != null && vaultManager.isModelDownloaded(langCode)) {
                     val prepared = withContext(Dispatchers.IO) {
                         sttEngine.prepareLanguage(language)
@@ -116,9 +109,9 @@ class SttManager(
         }
         currentLanguage = language
 
-        val langCode = getLanguageCode(language)
+        val langCode = language.indicConformerCode
         if (langCode != null && vaultManager.isModelDownloaded(langCode)) {
-            _state.value = SttState.READY
+            _state.value = SttState.PREPARING
 
             scope.launch {
                 Log.d(TAG, "Preparing recognizer for $language in background...")
@@ -127,6 +120,9 @@ class SttManager(
                 }
                 if (prepared) {
                     Log.d(TAG, "Recognizer ready for $language")
+                    if (_state.value == SttState.PREPARING) {
+                        _state.value = SttState.READY
+                    }
                 } else {
                     Log.e(TAG, "Failed to prepare recognizer for $language")
                     _lastError.value = "Failed to prepare STT for ${language.displayName}"
@@ -138,10 +134,23 @@ class SttManager(
         }
     }
 
+    fun prePrepareLanguage(language: Language) {
+        val langCode = language.indicConformerCode ?: return
+        if (!vaultManager.isModelDownloaded(langCode)) return
+
+        scope.launch {
+            Log.d(TAG, "Pre-preparing recognizer for $language...")
+            withContext(Dispatchers.IO) {
+                sttEngine.prepareLanguage(language)
+            }
+            Log.d(TAG, "Pre-prepare complete for $language")
+        }
+    }
+
     @SuppressLint("MissingPermission")
     fun startListening(): Int {
-        if (_state.value == SttState.LOADING) {
-            Log.e(TAG, "startListening() failed: model still loading")
+        if (_state.value == SttState.LOADING || _state.value == SttState.PREPARING) {
+            Log.e(TAG, "startListening() failed: model still loading/preparing")
             _lastError.value = "Cannot start listening: model loading"
             return -1
         }
@@ -157,7 +166,7 @@ class SttManager(
             return -1
         }
 
-        val langCode = getLanguageCode(language)
+        val langCode = language.indicConformerCode
         if (langCode == null || !vaultManager.isModelDownloaded(langCode)) {
             Log.e(TAG, "startListening() failed: model not downloaded for $language")
             _lastError.value = "Model not downloaded for ${language.displayName}"
@@ -199,20 +208,18 @@ class SttManager(
             val audioChannel = Channel<ShortArray>(capacity = 100)
 
             recordingJob = scope.launch(Dispatchers.Default) {
-                val speechAudioBuffer = mutableListOf<Short>()
+                val maxSamples = MAX_RECORDING_SECONDS * sampleRate
+                val speechAudioBuffer = ShortArray(maxSamples)
+                var writeIndex = 0
                 var endSilenceTriggered = false
                 var vadStateMachine: VadStateMachine? = null
                 var speechDetected = false
                 var chunksReceived = 0
                 var totalSamples = 0
 
-                if (vadAvailable) {
-                    vadManager.resetState()
-                    vadStateMachine = VadStateMachine()
-                    Log.d(TAG, "Consumer $sessionId: VAD mode, waiting for audio chunks...")
-                } else {
-                    Log.d(TAG, "Consumer $sessionId: No-VAD mode, accumulating all audio")
-                }
+                vadManager.resetState()
+                vadStateMachine = VadStateMachine()
+                Log.d(TAG, "Consumer $sessionId: VAD mode, waiting for audio chunks...")
 
                 try {
                     for (chunk in audioChannel) {
@@ -224,9 +231,13 @@ class SttManager(
                         chunksReceived++
                         totalSamples += chunk.size
 
-                        speechAudioBuffer.addAll(chunk.toTypedArray())
+                        val copyLen = minOf(chunk.size, maxSamples - writeIndex)
+                        if (copyLen > 0) {
+                            System.arraycopy(chunk, 0, speechAudioBuffer, writeIndex, copyLen)
+                            writeIndex += copyLen
+                        }
 
-                        if (vadAvailable && vadStateMachine != null && chunk.size >= 1024) {
+                        if (vadStateMachine != null && chunk.size >= 1024) {
                             val frame1 = chunk.copyOfRange(0, 512)
                             val frame2 = chunk.copyOfRange(512, 1024)
 
@@ -253,18 +264,15 @@ class SttManager(
                         if (endSilenceTriggered) break
                     }
 
-                    Log.d(TAG, "Consumer $sessionId: loop ended, chunks=$chunksReceived, totalSamples=$totalSamples, buffered=${speechAudioBuffer.size}, endSilence=$endSilenceTriggered")
+                    Log.d(TAG, "Consumer $sessionId: loop ended, chunks=$chunksReceived, totalSamples=$totalSamples, buffered=$writeIndex, endSilence=$endSilenceTriggered")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in consumer loop for session $sessionId", e)
                 } finally {
-                    if (speechAudioBuffer.isNotEmpty()) {
-                        Log.d(TAG, "Consumer $sessionId: transcribing ${speechAudioBuffer.size} samples")
+                    if (writeIndex > 0) {
+                        val finalBuffer = speechAudioBuffer.copyOf(writeIndex)
+                        Log.d(TAG, "Consumer $sessionId: transcribing $writeIndex samples")
                         val recognizedText = withContext(Dispatchers.Default) {
-                            sttEngine.transcribe(
-                                ShortArray(speechAudioBuffer.size) { speechAudioBuffer[it] },
-                                sampleRate,
-                                language
-                            )
+                            sttEngine.transcribe(finalBuffer, sampleRate, language)
                         }
 
                         val finalText = recognizedText.ifBlank { "" }
@@ -398,22 +406,8 @@ class SttManager(
         }
     }
 
-    private fun getLanguageCode(language: Language): String? {
-        return when (language) {
-            Language.ENGLISH -> "en"
-            Language.HINDI -> "hi"
-            Language.BENGALI -> "bn"
-            Language.GUJARATI -> "gu"
-            Language.MARATHI -> "mr"
-            Language.KANNADA -> "kn"
-            Language.MALAYALAM -> "ml"
-            Language.TAMIL -> "ta"
-            Language.TELUGU -> "te"
-            else -> null
-        }
-    }
-
     companion object {
         private const val TAG = "SttManager"
+        private const val MAX_RECORDING_SECONDS = 60
     }
 }

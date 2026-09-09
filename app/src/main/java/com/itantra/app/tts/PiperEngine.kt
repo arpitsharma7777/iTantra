@@ -57,9 +57,9 @@ class PiperEngine(
     }
 
     override fun release() {
-        // Calling sherpa-onnx OfflineTts.release() destroys global C++ espeak-ng context,
-        // which causes C++ std::terminate crashes when creating subsequent OfflineTts instances.
-        // We let JVM GC handle native object lifecycle safely.
+        // Intentionally a no-op. Calling sherpa-onnx OfflineTts.release() destroys the
+        // global C++ espeak-ng context, which causes std::terminate crashes when creating
+        // subsequent OfflineTts instances. We rely on JVM GC for native object lifecycle.
     }
 
     private fun copyEspeakNgData(destDir: File) {
